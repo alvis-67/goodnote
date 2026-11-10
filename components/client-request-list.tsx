@@ -3,7 +3,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { WorkLocation } from "@/components/work-location";
 import type { ChainLink } from "@/lib/document-chain";
 import type { RequestRow } from "@/lib/database.types";
-import { topicLabel } from "@/lib/domain";
+import { requestTitle } from "@/lib/request-stage";
 import { formatRelative } from "@/lib/format";
 import { clientNewPath, clientRequestPath } from "@/lib/paths";
 
@@ -34,7 +34,7 @@ export function ClientRequestList({
         >
           <a href={clientRequestPath(request.id)} className="block">
             <div className="flex items-center justify-between gap-3">
-              <p className="font-semibold">{topicLabel(request.topic)}</p>
+              <p className="font-semibold">{requestTitle(request.topic, request.stage)}</p>
               <StatusBadge status={request.status} />
             </div>
             <WorkLocation location={request.work_location} />

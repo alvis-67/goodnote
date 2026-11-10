@@ -5,12 +5,10 @@ import { revalidatePath } from "next/cache";
 import { insertMessage, messageBody, normalizeFiles, type ActionFailure, type PrepareSuccess } from "@/lib/actions/shared";
 import { loadClientContext } from "@/lib/data";
 import { dbErrorCode, sql } from "@/lib/db";
-import { nextDocumentTopic } from "@/lib/document-chain";
 import { isTopicId } from "@/lib/domain";
 import { hasDatabaseEnv, hasStorageEnv } from "@/lib/env";
 import type { FileMeta } from "@/lib/files";
 import { MAX_FILES } from "@/lib/files";
-import { duplicateFollowUpError, findLinkedChild, insertLinkedRequest } from "@/lib/linked-request";
 import { clientHomePath, clientRequestPath } from "@/lib/paths";
 import { isUuid } from "@/lib/tokens";
 import { finalizeUploads, prepareUploads } from "@/lib/uploads";
@@ -76,73 +74,6 @@ export async function prepareClientRequest(input: {
 
   revalidatePath(redirectTo);
   revalidatePath(clientHomePath);
-  return { ok: true, redirectTo, uploads: prepared.uploads };
-}
-
-export async function prepareLinkedRequest(input: {
-  parentRequestId: string;
-  body: string;
-  files: FileMeta[];
-  workLocation: string;
-}): Promise<PrepareSuccess | ActionFailure> {
-  const scope = await clientScope();
-  if (!scope.ok) return scope;
-  if (!isUuid(input.parentRequestId)) return { ok: false, error: "找不到這個請求。" };
-
-  const parents = await sql()`
-    select id, topic
-    from requests
-    where id = ${input.parentRequestId}
-      and client_id = ${scope.context.client.id}
-    limit 1
-  `;
-  const parent = parents[0];
-  const parentTopic = parent ? String(parent.topic ?? "") : "";
-  if (!parent || !isTopicId(parentTopic)) return { ok: false, error: "找不到這個請求。" };
-  const next = nextDocumentTopic(parentTopic);
-  if (!next) return { ok: false, error: "這個請求不能再開下一張單。" };
-
-  const parentId = String(parent.id);
-  const existing = await findLinkedChild(scope.context.client.id, parentId);
-  if (existing) return duplicateFollowUpError(existing, clientRequestPath(existing.id));
-
-  const workLocation = parseWorkLocation(typeof input.workLocation === "string" ? input.workLocation : "");
-  if (!workLocation.ok) return workLocation;
-  const body = messageBody(input.body);
-  if (!body.ok) return body;
-  const files = normalizeFiles(input.files ?? []);
-  if (!Array.isArray(files)) return files;
-  if (files.length > 0 && !hasStorageEnv()) return { ok: false, error: "系統尚未完成設定。" };
-
-  const created = await insertLinkedRequest({
-    clientId: scope.context.client.id,
-    topic: next,
-    workLocation: workLocation.value,
-    parentRequestId: parentId,
-    body: body.value,
-  });
-  if (!created.ok && created.reason === "duplicate") {
-    return duplicateFollowUpError(created.child, clientRequestPath(created.child.id));
-  }
-  if (!created.ok && created.reason === "insert") return { ok: false, error: created.error };
-
-  const requestId = created.requestId;
-  const redirectTo = clientRequestPath(requestId);
-  revalidatePath(clientRequestPath(parentId));
-  revalidatePath(clientHomePath);
-  revalidatePath("/admin");
-  revalidatePath(`/admin/requests/${parentId}`);
-  revalidatePath(redirectTo);
-  revalidatePath(`/admin/requests/${requestId}`);
-  if (!created.ok) return { ok: false, error: created.error, redirectTo };
-
-  const prepared = await prepareUploads({
-    clientId: scope.context.client.id,
-    requestId,
-    messageId: created.messageId,
-    files,
-  });
-  if (!prepared.ok) return { ...prepared, redirectTo };
   return { ok: true, redirectTo, uploads: prepared.uploads };
 }
 

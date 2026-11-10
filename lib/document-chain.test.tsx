@@ -1,38 +1,32 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { AdvanceStage } from "../components/advance-stage";
 import { ClientRequestList } from "../components/client-request-list";
-import { DocumentChain, InvoiceReceiptPrompt } from "../components/document-chain";
-import type { RequestRow } from "./database.types";
-import {
-  adminCanOpenReceipt,
-  adminReceiptAlreadyOpen,
-  adminReceiptCarryOver,
-  canFollowDocument,
-  chainDuplicateError,
-  followUpEmptyPlaceholder,
-  followUpIntro,
-  followUpPlaceholder,
-  nextDocumentTopic,
-  openingClientContent,
-  requestContentRequired,
-} from "./document-chain";
-import { adminFollowUpPath, adminRequestPath, clientFollowUpPath, clientRequestPath } from "./paths";
+import { DocumentChain } from "../components/document-chain";
+import { Thread } from "../components/thread";
+import type { MessageRow, RequestRow } from "./database.types";
+import { clientRequestPath } from "./paths";
+import { adminStagePrompt, stageAdvanceLabel, stageAdvanceNote } from "./request-stage";
 
 const quoteId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const invoiceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const receiptId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
-function request(partial: Pick<RequestRow, "id" | "topic" | "work_location"> & Partial<Pick<RequestRow, "parent_request_id">>): RequestRow {
+function request(
+  partial: Pick<RequestRow, "id" | "topic" | "work_location"> &
+    Partial<Pick<RequestRow, "parent_request_id" | "stage" | "status">>,
+): RequestRow {
   const now = "2026-11-10T02:00:00.000Z";
   return {
     id: partial.id,
     client_id: "11111111-1111-4111-8111-111111111111",
     topic: partial.topic,
-    status: "issued",
+    stage: partial.stage ?? partial.topic,
+    status: partial.status ?? "issued",
     work_location: partial.work_location,
     parent_request_id: partial.parent_request_id ?? null,
     created_at: now,
@@ -45,224 +39,114 @@ function request(partial: Pick<RequestRow, "id" | "topic" | "work_location"> & P
   };
 }
 
+function message(partial: Pick<MessageRow, "id" | "kind"> & Partial<MessageRow>): MessageRow {
+  return {
+    id: partial.id,
+    request_id: quoteId,
+    author_role: partial.author_role ?? "system",
+    kind: partial.kind,
+    body: partial.body ?? null,
+    status_from: partial.status_from ?? null,
+    status_to: partial.status_to ?? null,
+    stage_from: partial.stage_from ?? null,
+    stage_to: partial.stage_to ?? null,
+    created_at: partial.created_at ?? "2026-11-10T02:00:00.000Z",
+  };
+}
+
 function html(element: ReturnType<typeof createElement>): string {
   return renderToStaticMarkup(element);
 }
 
-test("the next document is invoice after a quotation, then a receipt", () => {
-  assert.equal(nextDocumentTopic("quote"), "invoice");
-  assert.equal(nextDocumentTopic("invoice"), "receipt");
-  assert.equal(nextDocumentTopic("receipt"), null);
-  assert.equal(nextDocumentTopic("other"), null);
-  assert.equal(canFollowDocument("quote", "invoice"), true);
-  assert.equal(canFollowDocument("invoice", "receipt"), true);
-  assert.equal(canFollowDocument("quote", "receipt"), false);
-  assert.equal(canFollowDocument("other", "invoice"), false);
-  assert.equal(canFollowDocument("receipt", "invoice"), false);
-  assert.match(followUpPlaceholder("invoice"), /客人已同意，可以開工/);
-  assert.match(followUpEmptyPlaceholder(), /可以留空/);
-  assert.match(followUpIntro("quote", "invoice", true, true), /出報價單/);
-  assert.match(followUpIntro("quote", "invoice", true, true), /出發票/);
-  assert.match(followUpIntro("quote", "invoice", true, true), /維持不變/);
-  assert.match(followUpIntro("quote", "invoice", true, true), /工作地點已從原本的請求填上/);
-  assert.match(followUpIntro("quote", "invoice", true, true), /內容已從原本的請求填上/);
-  assert.match(followUpIntro("invoice", "receipt", false, false), /請填寫工作地點/);
-  assert.match(followUpIntro("invoice", "receipt", false, false), /可以直接提交/);
-  assert.doesNotMatch(followUpIntro("invoice", "receipt", false, false), /已從原本的請求填上/);
-  assert.equal(chainDuplicateError("invoice"), "已經有出發票，不會再開一張。");
-  assert.equal(requestContentRequired("create"), true);
-  assert.equal(requestContentRequired("reply"), true);
-  assert.equal(requestContentRequired("follow"), false);
-  assert.equal(adminCanOpenReceipt("甲工程公司"), "你可以為甲工程公司開出收據。");
-  assert.equal(adminCanOpenReceipt("  "), "你可以為這位客人開出收據。");
-  assert.match(adminReceiptAlreadyOpen("甲工程公司"), /已為甲工程公司開出的收據/);
-  assert.match(adminReceiptAlreadyOpen("甲工程公司"), /不會再開一張/);
-  assert.match(adminReceiptCarryOver(), /工作地點和內容會從這張發票帶過去/);
-});
-
-test("follow-up content is the earliest client message, not a later reply", () => {
-  const copied = openingClientContent([
-    {
-      id: "2",
-      authorRole: "admin",
-      kind: "message",
-      body: "報價已附上",
-      createdAt: "2026-11-10T01:00:00.000Z",
-    },
-    {
-      id: "3",
-      authorRole: "client",
-      kind: "message",
-      body: "   ",
-      createdAt: "2026-11-10T00:30:00.000Z",
-    },
-    {
-      id: "4",
-      authorRole: "client",
-      kind: "message",
-      body: "稍後補充：連泥水",
-      createdAt: "2026-11-10T03:00:00.000Z",
-    },
-    {
-      id: "1",
-      authorRole: "client",
-      kind: "message",
-      body: "  請報價泥水工程  ",
-      createdAt: "2026-11-10T00:00:00.000Z",
-    },
-    {
-      id: "5",
-      authorRole: "system",
-      kind: "status_change",
-      body: "狀態由待處理改為已出單",
-      createdAt: "2026-11-09T00:00:00.000Z",
-    },
-  ]);
-  assert.equal(copied, "請報價泥水工程");
-  assert.equal(
-    openingClientContent([
-      { authorRole: "client", kind: "message", body: null, createdAt: "2026-11-10T00:00:00.000Z" },
-      { authorRole: "admin", kind: "message", body: "只有檔案", createdAt: "2026-11-10T01:00:00.000Z" },
-    ]),
-    "",
-  );
-  const sameTime = openingClientContent([
-    { id: "b", authorRole: "client", kind: "message", body: "後寫", createdAt: "2026-11-10T00:00:00.000Z" },
-    { id: "a", authorRole: "client", kind: "message", body: "先寫", createdAt: "2026-11-10T00:00:00.000Z" },
-  ]);
-  assert.equal(sameTime, "先寫");
-});
-
-test("a quotation offers a linked invoice, and an invoice offers a linked receipt", () => {
-  const startQuote = html(
-    createElement(DocumentChain, {
-      topic: "quote",
-      parent: null,
-      child: null,
-      hrefFor: clientRequestPath,
-      startHref: clientFollowUpPath(quoteId),
+test("advancing stays on this request and old links stay viewable", () => {
+  const quote = html(
+    createElement(AdvanceStage, {
+      requestId: quoteId,
+      label: stageAdvanceLabel("quote", "quote") ?? "",
+      note: stageAdvanceNote(),
+      action: () => undefined,
     }),
   );
-  assert.match(startQuote, /相關單據/);
-  assert.match(startQuote, /開出發票/);
-  assert.match(startQuote, /原本的出報價單不會更改事項、狀態、訊息或檔案/);
-  assert.match(startQuote, new RegExp(`href="${clientFollowUpPath(quoteId)}"`));
-  assert.doesNotMatch(startQuote, /開出收據|尚未開/);
+  assert.match(quote, /改為已出報價單，請出發票/);
+  assert.match(quote, /不會另開一則/);
+  assert.match(quote, /待處理/);
+  assert.match(quote, new RegExp(`name="requestId" value="${quoteId}"`));
+  assert.match(quote, /type="submit"/);
+  assert.doesNotMatch(quote, /textarea|type="file"|name="workLocation"|開出發票|開出收據|\/next/);
 
-  const openInvoice = html(
-    createElement(DocumentChain, {
-      topic: "quote",
-      parent: null,
-      child: { id: invoiceId, topic: "invoice" },
-      hrefFor: clientRequestPath,
-      startHref: clientFollowUpPath(quoteId),
+  const receiptStep = html(
+    createElement(AdvanceStage, {
+      requestId: quoteId,
+      label: stageAdvanceLabel("quote", "invoice") ?? "",
+      note: stageAdvanceNote(),
+      prompt: adminStagePrompt("甲工程公司", "quote", "invoice"),
+      action: () => undefined,
     }),
   );
-  assert.match(openInvoice, /已開出發票/);
-  assert.match(openInvoice, /查看這張出發票/);
-  assert.match(openInvoice, new RegExp(`href="${clientRequestPath(invoiceId)}"`));
-  assert.doesNotMatch(openInvoice, /\/next/);
+  assert.match(receiptStep, /你可以為甲工程公司改為「發票，已收錢，請出收據」/);
+  assert.match(receiptStep, /改為發票，已收錢，請出收據/);
+  assert.doesNotMatch(receiptStep, /開出收據|\/next/);
 
-  const startReceipt = html(
+  const standaloneInvoice = html(
+    createElement(AdvanceStage, {
+      requestId: invoiceId,
+      label: stageAdvanceLabel("invoice", "invoice") ?? "",
+      note: stageAdvanceNote(),
+      prompt: adminStagePrompt("甲工程公司", "invoice", "invoice"),
+      action: () => undefined,
+    }),
+  );
+  assert.match(standaloneInvoice, /你可以為甲工程公司改為「發票，已收錢，請出收據」/);
+  assert.doesNotMatch(standaloneInvoice, /已出報價單，請出發票/);
+
+  const oldLinks = html(
     createElement(DocumentChain, {
-      topic: "invoice",
       parent: { id: quoteId, topic: "quote" },
-      child: null,
-      hrefFor: clientRequestPath,
-      startHref: clientFollowUpPath(invoiceId),
-    }),
-  );
-  assert.match(startReceipt, /由出報價單開出/);
-  assert.match(startReceipt, /查看這張出報價單/);
-  assert.match(startReceipt, new RegExp(`href="${clientRequestPath(quoteId)}"`));
-  assert.match(startReceipt, /開出收據/);
-  assert.doesNotMatch(startReceipt, /開出發票/);
-
-  const adminWaiting = html(
-    createElement(DocumentChain, {
-      topic: "quote",
-      parent: null,
-      child: null,
-      hrefFor: (id) => `/admin/requests/${id}`,
-      startHref: null,
-    }),
-  );
-  assert.match(adminWaiting, /尚未開出發票/);
-  assert.doesNotMatch(adminWaiting, /\/next/);
-  assert.doesNotMatch(adminWaiting, />開出發票</);
-
-  const adminInvoice = html(
-    createElement(DocumentChain, {
-      topic: "invoice",
-      parent: { id: quoteId, topic: "quote" },
-      child: null,
-      hrefFor: adminRequestPath,
-      startHref: adminFollowUpPath(invoiceId),
-      actionNote: adminCanOpenReceipt("甲工程公司"),
-    }),
-  );
-  assert.match(adminInvoice, /你可以為甲工程公司開出收據/);
-  assert.match(adminInvoice, /開出收據/);
-  assert.match(adminInvoice, new RegExp(`href="${adminFollowUpPath(invoiceId)}"`));
-  assert.match(adminInvoice, /原本的出發票不會更改事項、狀態、訊息或檔案/);
-  assert.doesNotMatch(adminInvoice, /尚未開出收據/);
-
-  const adminHasReceipt = html(
-    createElement(DocumentChain, {
-      topic: "invoice",
-      parent: null,
       child: { id: receiptId, topic: "receipt" },
-      hrefFor: adminRequestPath,
-      startHref: adminFollowUpPath(invoiceId),
-      actionNote: adminCanOpenReceipt("甲工程公司"),
-    }),
-  );
-  assert.match(adminHasReceipt, /已開出收據/);
-  assert.match(adminHasReceipt, new RegExp(`href="${adminRequestPath(receiptId)}"`));
-  assert.doesNotMatch(adminHasReceipt, /你可以為甲工程公司開出收據/);
-  assert.doesNotMatch(adminHasReceipt, new RegExp(`href="${adminFollowUpPath(invoiceId)}"`));
-
-  const receipt = html(
-    createElement(DocumentChain, {
-      topic: "receipt",
-      parent: { id: invoiceId, topic: "invoice" },
-      child: null,
       hrefFor: clientRequestPath,
-      startHref: clientFollowUpPath(receiptId),
     }),
   );
-  assert.match(receipt, /由出發票開出/);
-  assert.match(receipt, new RegExp(`href="${clientRequestPath(invoiceId)}"`));
-  assert.doesNotMatch(receipt, /開出收據|尚未開|\/next/);
+  assert.match(oldLinks, /由出報價單開出/);
+  assert.match(oldLinks, /已開出收據/);
+  assert.match(oldLinks, new RegExp(`href="${clientRequestPath(quoteId)}"`));
+  assert.match(oldLinks, new RegExp(`href="${clientRequestPath(receiptId)}"`));
+  assert.doesNotMatch(oldLinks, />開出發票<|>開出收據<|\/next|textarea/);
 
   assert.equal(
     html(
       createElement(DocumentChain, {
-        topic: "other",
         parent: null,
         child: null,
         hrefFor: clientRequestPath,
-        startHref: clientFollowUpPath(quoteId),
-      }),
-    ),
-    "",
-  );
-  assert.equal(
-    html(
-      createElement(DocumentChain, {
-        topic: "receipt",
-        parent: null,
-        child: null,
-        hrefFor: clientRequestPath,
-        startHref: null,
       }),
     ),
     "",
   );
 });
 
-test("the request list shows the quotation linked to a later invoice", () => {
+test("one job is one row, titled with the current stage", () => {
   const markup = html(
+    createElement(ClientRequestList, {
+      requests: [
+        request({
+          id: quoteId,
+          topic: "quote",
+          stage: "invoice",
+          work_location: "九龍灣地盤",
+          status: "pending",
+        }),
+      ],
+    }),
+  );
+  const items = markup.split("<li").slice(1);
+  assert.equal(items.length, 1);
+  assert.match(items[0] ?? "", /已出報價單，請出發票/);
+  assert.match(items[0] ?? "", /九龍灣地盤/);
+  assert.match(items[0] ?? "", /待處理/);
+  assert.match(items[0] ?? "", new RegExp(`href="${clientRequestPath(quoteId)}"`));
+  assert.doesNotMatch(markup, /開出發票|開出收據|出收據/);
+
+  const legacy = html(
     createElement(ClientRequestList, {
       requests: [
         {
@@ -281,143 +165,131 @@ test("the request list shows the quotation linked to a later invoice", () => {
       ],
     }),
   );
-  const items = markup.split("<li").slice(1);
-  assert.equal(items.length, 2);
-  assert.match(items[0] ?? "", /出報價單/);
-  assert.match(items[0] ?? "", /九龍灣地盤/);
-  assert.match(items[0] ?? "", /已開出發票/);
-  assert.match(items[0] ?? "", new RegExp(`href="${clientRequestPath(invoiceId)}"`));
-  assert.match(items[0] ?? "", new RegExp(`href="${clientRequestPath(quoteId)}"`));
-  assert.match(items[1] ?? "", /出發票/);
-  assert.match(items[1] ?? "", /由出報價單開出/);
-  assert.match(items[1] ?? "", new RegExp(`href="${clientRequestPath(quoteId)}"`));
-  assert.doesNotMatch(markup, /開出收據|其他/);
+  const legacyItems = legacy.split("<li").slice(1);
+  assert.equal(legacyItems.length, 2);
+  assert.match(legacyItems[0] ?? "", /出報價單/);
+  assert.match(legacyItems[0] ?? "", /已開出發票/);
+  assert.match(legacyItems[0] ?? "", new RegExp(`href="${clientRequestPath(invoiceId)}"`));
+  assert.match(legacyItems[1] ?? "", /出發票/);
+  assert.match(legacyItems[1] ?? "", /由出報價單開出/);
+  assert.doesNotMatch(legacy, />開出發票<|>開出收據</);
 });
 
-test("after an invoice status change, the admin is prompted to open one receipt", () => {
-  const openReceipt = html(
-    createElement(InvoiceReceiptPrompt, {
-      companyName: "甲工程公司",
-      child: null,
-      startHref: adminFollowUpPath(invoiceId),
-      hrefFor: adminRequestPath,
+test("the timeline shows the stage change and the status change on the same request", () => {
+  const markup = html(
+    createElement(Thread, {
+      topic: "quote",
+      urls: new Map(),
+      attachments: [
+        {
+          id: "file-1",
+          message_id: "message-1",
+          file_name: "報價.pdf",
+          mime_type: "application/pdf",
+          size_bytes: 1200,
+          storage_path: "kept",
+        },
+      ],
+      messages: [
+        message({
+          id: "message-1",
+          kind: "message",
+          author_role: "client",
+          body: "請報價泥水工程",
+        }),
+        message({
+          id: "stage-1",
+          kind: "stage_change",
+          body: "階段由出報價單改為已出報價單，請出發票",
+          stage_from: "quote",
+          stage_to: "invoice",
+        }),
+        message({
+          id: "status-1",
+          kind: "status_change",
+          author_role: "system",
+          status_from: "issued",
+          status_to: "pending",
+        }),
+      ],
     }),
   );
-  assert.match(openReceipt, /狀態已更新，並寫進時間線/);
-  assert.match(openReceipt, /你可以為甲工程公司開出收據/);
-  assert.match(openReceipt, /工作地點和內容會從這張發票帶過去/);
-  assert.match(openReceipt, new RegExp(`href="${adminFollowUpPath(invoiceId)}"`));
-  assert.match(openReceipt, />開出收據</);
-  assert.doesNotMatch(openReceipt, /不會再開一張/);
-
-  const existing = html(
-    createElement(InvoiceReceiptPrompt, {
-      companyName: "甲工程公司",
-      child: { id: receiptId, topic: "receipt" },
-      startHref: adminFollowUpPath(invoiceId),
-      hrefFor: adminRequestPath,
+  assert.match(markup, /請報價泥水工程/);
+  assert.match(markup, /報價\.pdf/);
+  assert.match(markup, /階段由出報價單改為已出報價單，請出發票/);
+  assert.match(markup, /狀態由已出單改為待處理/);
+  const stageOnly = html(
+    createElement(Thread, {
+      topic: "invoice",
+      urls: new Map(),
+      attachments: [],
+      messages: [
+        message({
+          id: "stage-2",
+          kind: "stage_change",
+          stage_from: "invoice",
+          stage_to: "receipt",
+        }),
+      ],
     }),
   );
-  assert.match(existing, /狀態已更新，並寫進時間線/);
-  assert.match(existing, /已為甲工程公司開出的收據/);
-  assert.match(existing, /不會再開一張/);
-  assert.match(existing, new RegExp(`href="${adminRequestPath(receiptId)}"`));
-  assert.doesNotMatch(existing, new RegExp(`href="${adminFollowUpPath(invoiceId)}"`));
-  assert.doesNotMatch(existing, />開出收據</);
+  assert.match(stageOnly, /階段由出發票改為發票，已收錢，請出收據/);
 });
 
-test("starting the next document does not rewrite the original request", () => {
-  const action = readFileSync(new URL("./actions/client.ts", import.meta.url), "utf8");
+test("new stage changes do not create a linked request", () => {
+  const clientAction = readFileSync(new URL("./actions/client.ts", import.meta.url), "utf8");
   const adminAction = readFileSync(new URL("./actions/admin.ts", import.meta.url), "utf8");
-  const linkedRequest = readFileSync(new URL("./linked-request.ts", import.meta.url), "utf8");
-  const data = readFileSync(new URL("./data.ts", import.meta.url), "utf8");
+  const stageAction = readFileSync(new URL("./actions/stage.ts", import.meta.url), "utf8");
   const composer = readFileSync(new URL("../components/composer.tsx", import.meta.url), "utf8");
-  const follow = readFileSync(new URL("../app/client/(portal)/requests/[id]/next/page.tsx", import.meta.url), "utf8");
-  const adminFollow = readFileSync(new URL("../app/admin/(desk)/requests/[id]/next/page.tsx", import.meta.url), "utf8");
   const clientPage = readFileSync(new URL("../app/client/(portal)/requests/[id]/page.tsx", import.meta.url), "utf8");
   const adminPage = readFileSync(new URL("../app/admin/(desk)/requests/[id]/page.tsx", import.meta.url), "utf8");
   const desk = readFileSync(new URL("../app/admin/(desk)/page.tsx", import.meta.url), "utf8");
-  const linked = action.slice(
-    action.indexOf("export async function prepareLinkedRequest"),
-    action.indexOf("export async function prepareClientReply"),
-  );
-  const adminLinked = adminAction.slice(
-    adminAction.indexOf("export async function prepareAdminLinkedReceipt"),
-    adminAction.indexOf("export async function deleteRequest"),
-  );
-  const created = action.slice(
-    action.indexOf("export async function prepareClientRequest"),
-    action.indexOf("export async function prepareLinkedRequest"),
+  const chain = readFileSync(new URL("../components/document-chain.tsx", import.meta.url), "utf8");
+  const advance = stageAction.slice(
+    stageAction.indexOf("async function moveRequestStage"),
+    stageAction.indexOf("function revalidateStage"),
   );
 
-  assert.match(action, /insert into requests \(client_id, topic, work_location\)/);
-  assert.match(linkedRequest, /insert into requests \(client_id, topic, work_location, parent_request_id\)/);
-  assert.match(linkedRequest, /authorRole: "client"/);
-  assert.match(linkedRequest, /23505/);
-  assert.doesNotMatch(linkedRequest, /update\s+(public\.)?requests/i);
-  assert.match(linked, /insertLinkedRequest/);
-  assert.match(linked, /topic: next/);
-  assert.match(linked, /parseWorkLocation/);
-  assert.doesNotMatch(linked, /請填寫內容，或上載至少一個檔案/);
-  assert.doesNotMatch(linked, /update\s+(public\.)?requests/i);
-  assert.doesNotMatch(linked, /signOut|destroyCurrentSession/);
-  assert.match(created, /請填寫內容，或上載至少一個檔案/);
+  assert.equal(existsSync(new URL("./linked-request.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../app/client/(portal)/requests/[id]/next/page.tsx", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../app/admin/(desk)/requests/[id]/next/page.tsx", import.meta.url)), false);
 
-  assert.match(adminLinked, /parentTopic !== "invoice"/);
-  assert.match(adminLinked, /topic: "receipt"/);
-  assert.match(adminLinked, /insertLinkedRequest/);
-  assert.match(adminLinked, /parseWorkLocation/);
-  assert.doesNotMatch(adminLinked, /請填寫內容，或上載至少一個檔案/);
-  assert.doesNotMatch(adminLinked, /update\s+(public\.)?requests/i);
-  assert.doesNotMatch(adminLinked, /signOut|destroyCurrentSession/);
-  assert.match(adminAction, /requireAdmin/);
+  assert.match(clientAction, /insert into requests \(client_id, topic, work_location\)/);
+  assert.doesNotMatch(clientAction, /parent_request_id|prepareLinkedRequest/);
+  assert.doesNotMatch(adminAction, /parent_request_id|prepareAdminLinkedReceipt|insert into requests/i);
+  assert.match(advance, /set stage = \$\{next\}/);
+  assert.match(advance, /status = 'pending'/);
+  assert.match(advance, /admin_unread = true/);
+  assert.match(advance, /where id = \$\{requestId\}/);
+  assert.match(advance, /and stage = \$\{stage\}/);
+  assert.match(advance, /nextRequestStage\(topic, stage\)/);
+  assert.doesNotMatch(advance, /insert\s+into\s+requests/i);
+  assert.doesNotMatch(advance, /parent_request_id/);
+  assert.doesNotMatch(advance, /formData\.get\("stage"\)|formData\.get\("topic"\)/);
+  assert.doesNotMatch(stageAction, /signOut|destroyCurrentSession/);
 
-  assert.match(data, /author_role = 'client'/);
-  assert.match(data, /order by m\.created_at asc, m\.id asc/);
-  assert.match(data, /openingClientContent/);
-
-  assert.match(composer, /prepareLinkedRequest/);
-  assert.match(composer, /prepareAdminLinkedReceipt/);
-  assert.match(composer, /initialWorkLocation/);
-  assert.match(composer, /useState\(initialBody\)/);
-  assert.match(composer, /requestContentRequired\(mode\)/);
-  assert.match(composer, /followUpPlaceholder/);
-  assert.match(composer, /followUpEmptyPlaceholder/);
-  assert.match(
-    composer,
-    /if \(audience === "client" && mode === "follow"\) \{\s*const navigation = navigationAfterCreate\(prepared\.redirectTo\);\s*window\.location\.replace\(navigation\.href\);\s*return;\s*\}/,
-  );
-  assert.match(
-    composer,
-    /if \(audience === "admin" && mode === "follow"\) \{\s*window\.location\.replace\(prepared\.redirectTo\);\s*return;\s*\}/,
-  );
-  assert.doesNotMatch(composer, /signOut|destroyCurrentSession/);
-
-  assert.match(follow, /mode="follow"/);
-  assert.match(follow, /initialWorkLocation=\{request\.work_location \?\? ""\}/);
-  assert.match(follow, /initialBody=\{opening\}/);
-  assert.match(follow, /loadClientOpeningContent/);
-  assert.match(follow, /ClientListLink/);
-  assert.match(follow, /if \(chain\.child\) redirect/);
-  assert.doesNotMatch(follow, /signOut|destroyCurrentSession/);
-
-  assert.match(adminFollow, /mode="follow"/);
-  assert.match(adminFollow, /audience="admin"/);
-  assert.match(adminFollow, /topic="receipt"/);
-  assert.match(adminFollow, /initialBody=\{opening\}/);
-  assert.match(adminFollow, /initialWorkLocation=\{request\.work_location \?\? ""\}/);
-  assert.match(adminFollow, /loadAdminOpeningContent/);
-  assert.match(adminFollow, /request\.topic !== "invoice"/);
-  assert.match(adminFollow, /if \(chain\.child\) redirect\(adminRequestPath/);
-  assert.doesNotMatch(adminFollow, /signOut|destroyCurrentSession/);
-
-  assert.match(clientPage, /startHref=\{clientFollowUpPath\(request\.id\)\}/);
+  assert.match(clientPage, /advanceClientRequestStage/);
+  assert.match(clientPage, /stageAdvanceLabel\(request\.topic, request\.stage\)/);
+  assert.match(clientPage, /requestTitle|stage=\{request\.stage\}/);
   assert.match(clientPage, /<DocumentChain/);
-  assert.match(adminPage, /startHref=\{request\.topic === "invoice" \? adminFollowUpPath\(request\.id\) : null\}/);
-  assert.match(adminPage, /adminCanOpenReceipt\(client\.company_name\)/);
-  assert.match(adminPage, /InvoiceReceiptPrompt/);
-  assert.match(adminPage, /query\.notice === "status" && request\.topic === "invoice"/);
+  assert.match(clientPage, /topic=\{request\.topic\}/);
+  assert.doesNotMatch(clientPage, /\/next|開出發票|開出收據|prepareLinkedRequest/);
+
+  assert.match(adminPage, /advanceAdminRequestStage/);
+  assert.match(adminPage, /adminStagePrompt\(client\.company_name, request\.topic, request\.stage\)/);
+  assert.match(adminPage, /<StatusMenu/);
+  assert.match(adminPage, /setRequestStatus/);
+  assert.match(adminPage, /query\.notice === "status"/);
+  assert.match(adminPage, /狀態已更新，並寫進時間線/);
   assert.match(adminPage, /<DocumentChain/);
+  assert.doesNotMatch(adminPage, /\/next|開出發票|開出收據|InvoiceReceiptPrompt|prepareAdminLinkedReceipt/);
+
+  assert.match(desk, /requestTitle\(row\.topic, row\.stage\)/);
   assert.match(desk, /<RequestChainLinks/);
+  assert.doesNotMatch(desk, /\/next|開出發票|開出收據/);
+  assert.doesNotMatch(chain, /\/next|開出發票|開出收據|startHref/);
+  assert.doesNotMatch(composer, /prepareLinkedRequest|prepareAdminLinkedReceipt|mode === "follow"|\/next/);
+  assert.match(composer, /mode: "create" \| "reply"/);
+  assert.match(adminPage, new RegExp(`hrefFor=\{${"adminRequestPath"}`));
   assert.match(desk, /adminRequestPath/);
 });

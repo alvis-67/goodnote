@@ -8,7 +8,8 @@ import { StatusBadge } from "@/components/status-badge";
 import { WorkLocation } from "@/components/work-location";
 import { loadAdminInbox } from "@/lib/data";
 import type { ChainLink } from "@/lib/document-chain";
-import { STATUSES, TOPICS, isStatusId, isTopicId, topicLabel } from "@/lib/domain";
+import { STATUSES, TOPICS, isStatusId, isTopicId } from "@/lib/domain";
+import { requestTitle } from "@/lib/request-stage";
 import { excerpt, formatRelative } from "@/lib/format";
 import { adminDeskHref, adminRequestPath } from "@/lib/paths";
 import { isUuid } from "@/lib/tokens";
@@ -119,7 +120,7 @@ export default async function AdminHomePage({
                     <p className="font-semibold">
                       {row.company_name}
                       <span className="mx-2 font-normal text-muted">·</span>
-                      {topicLabel(row.topic)}
+                      {requestTitle(row.topic, row.stage)}
                     </p>
                     <StatusBadge status={row.status} />
                   </div>
@@ -144,7 +145,7 @@ export default async function AdminHomePage({
                     action={deleteRequest}
                     askHref={adminDeskHref({ status, topic, clientId, deleteId: row.id })}
                     cancelHref={deskHref}
-                    askLabel={`刪除${row.company_name}的${topicLabel(row.topic)}`}
+                    askLabel={`刪除${row.company_name}的${requestTitle(row.topic, row.stage)}`}
                     compact
                   />
                 </div>

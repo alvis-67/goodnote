@@ -3,20 +3,28 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { deleteRequest, setRequestStatus } from "@/lib/actions/admin";
+import { advanceAdminRequestStage } from "@/lib/actions/stage";
+import { AdvanceStage } from "@/components/advance-stage";
 import { Composer } from "@/components/composer";
 import { DeleteRequest } from "@/components/delete-request";
-import { DocumentChain, InvoiceReceiptPrompt } from "@/components/document-chain";
+import { DocumentChain } from "@/components/document-chain";
 import { MarkAdminRead } from "@/components/mark-read";
 import { StatusBadge } from "@/components/status-badge";
 import { StatusMenu } from "@/components/status-menu";
 import { Thread } from "@/components/thread";
 import { WorkLocation } from "@/components/work-location";
 import { getAdminRequest, loadAdminRequestChain, loadAdminThread } from "@/lib/data";
-import { adminCanOpenReceipt } from "@/lib/document-chain";
-import { topicLabel } from "@/lib/domain";
 import { formatDateTime } from "@/lib/format";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
-import { adminFollowUpPath, adminRequestPath } from "@/lib/paths";
+import { adminRequestPath } from "@/lib/paths";
+import {
+  adminStagePrompt,
+  requestTitle,
+  stageAdvanceError,
+  stageAdvanceLabel,
+  stageAdvanceNote,
+  stageAdvancedNotice,
+} from "@/lib/request-stage";
 import { signAttachmentPaths } from "@/lib/uploads";
 
 export const metadata: Metadata = { title: "請求" };
@@ -38,6 +46,7 @@ export default async function AdminRequestPage({
   const urls = hasStorageEnv()
     ? await signAttachmentPaths(thread.attachments.map((file) => file.storage_path))
     : new Map<string, string>();
+  const advanceLabel = stageAdvanceLabel(request.topic, request.stage);
 
   return (
     <main className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
@@ -55,40 +64,42 @@ export default async function AdminRequestPage({
       <section>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-semibold">{topicLabel(request.topic)}</h2>
+            <h2 className="text-2xl font-semibold">{requestTitle(request.topic, request.stage)}</h2>
             <WorkLocation location={request.work_location} />
             <p className="mt-1 text-sm text-muted">建立於 {formatDateTime(request.created_at)}</p>
           </div>
           <StatusBadge status={request.status} />
         </div>
         <DocumentChain
-          topic={request.topic}
           parent={chain.parent}
           child={chain.child}
           hrefFor={adminRequestPath}
-          startHref={request.topic === "invoice" ? adminFollowUpPath(request.id) : null}
-          actionNote={
-            request.topic === "invoice" && !chain.child ? adminCanOpenReceipt(client.company_name) : null
-          }
           className="mt-4 rounded-2xl bg-desk-card px-4 py-4"
         />
         <div className="mt-4 rounded-2xl bg-desk-card px-4 py-3 text-sm leading-6">
           <p>只有管理員可以更改狀態。拉下選單可以隨時改為待處理、處理中、已出單或已入機。</p>
           <StatusMenu requestId={request.id} status={request.status} action={setRequestStatus} />
-          {query.notice === "status" && request.topic === "invoice" ? (
-            <InvoiceReceiptPrompt
-              companyName={client.company_name}
-              child={chain.child}
-              startHref={adminFollowUpPath(request.id)}
-              hrefFor={adminRequestPath}
-            />
-          ) : null}
-          {query.notice === "status" && request.topic !== "invoice" ? (
+          {query.notice === "status" ? (
             <p role="status" className="mt-2 text-ok">
               狀態已更新，並寫進時間線。
             </p>
           ) : null}
+          {query.notice === "stage" ? (
+            <p role="status" className="mt-2 text-ok">
+              {stageAdvancedNotice()}
+            </p>
+          ) : null}
           {query.error === "status" ? <p className="mt-2 text-danger">狀態未能更新。</p> : null}
+          {query.error === "stage" ? <p className="mt-2 text-danger">{stageAdvanceError()}</p> : null}
+          {advanceLabel ? (
+            <AdvanceStage
+              requestId={request.id}
+              label={advanceLabel}
+              note={stageAdvanceNote()}
+              prompt={adminStagePrompt(client.company_name, request.topic, request.stage)}
+              action={advanceAdminRequestStage}
+            />
+          ) : null}
           <div className="mt-4 border-t border-navy/10 pt-4">
             <DeleteRequest
               requestId={request.id}
@@ -96,14 +107,14 @@ export default async function AdminRequestPage({
               action={deleteRequest}
               askHref="?confirm=delete"
               cancelHref="?"
-              askLabel={`刪除${client.company_name}的${topicLabel(request.topic)}`}
+              askLabel={`刪除${client.company_name}的${requestTitle(request.topic, request.stage)}`}
             />
             {query.error === "confirm" ? <p className="mt-2 text-danger">請先確認才可以刪除。</p> : null}
             {query.error === "delete" ? <p className="mt-2 text-danger">未能刪除這則請求。</p> : null}
           </div>
         </div>
         <div className="mt-5">
-          <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} />
+          <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} topic={request.topic} />
         </div>
         <div className="mt-6 rounded-3xl bg-desk-card p-4">
           <h3 className="font-semibold">回覆</h3>

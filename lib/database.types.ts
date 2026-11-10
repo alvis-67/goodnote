@@ -1,12 +1,14 @@
 import type { StatusId, TopicId } from "@/lib/domain";
+import type { StageId } from "@/lib/request-stage";
 
 export type AuthorRole = "client" | "admin" | "system";
-export type MessageKind = "message" | "status_change";
+export type MessageKind = "message" | "status_change" | "stage_change";
 export type NotificationEventType =
   | "request_created"
   | "client_message"
   | "admin_message"
-  | "status_changed";
+  | "status_changed"
+  | "stage_changed";
 
 export type ClientRow = {
   id: string;
@@ -25,6 +27,7 @@ export type RequestRow = {
   id: string;
   client_id: string;
   topic: TopicId;
+  stage: StageId;
   status: StatusId;
   work_location: string | null;
   parent_request_id: string | null;
@@ -45,6 +48,8 @@ export type MessageRow = {
   body: string | null;
   status_from: StatusId | null;
   status_to: StatusId | null;
+  stage_from: StageId | null;
+  stage_to: StageId | null;
   created_at: string;
 };
 
@@ -64,6 +69,7 @@ export type InboxRow = {
   id: string;
   client_id: string;
   topic: TopicId;
+  stage: StageId;
   status: StatusId;
   created_at: string;
   updated_at: string;

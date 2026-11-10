@@ -13,9 +13,7 @@ import { dbErrorCode, sql } from "@/lib/db";
 import { isDeleteConfirmed, isStatusId } from "@/lib/domain";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
 import { storageKeysByRequest, type FileMeta } from "@/lib/files";
-import { parseWorkLocation } from "@/lib/work-location";
-import { duplicateFollowUpError, findLinkedChild, insertLinkedRequest } from "@/lib/linked-request";
-import { adminRequestPath, clientHomePath, clientRequestPath } from "@/lib/paths";
+import { clientHomePath, clientRequestPath } from "@/lib/paths";
 import { asText } from "@/lib/rows";
 import { isUuid } from "@/lib/tokens";
 import { deleteRequestFiles, finalizeUploads, prepareUploads } from "@/lib/uploads";
@@ -111,73 +109,6 @@ export async function setRequestStatus(formData: FormData): Promise<void> {
   revalidatePath(clientHomePath);
   revalidatePath(clientRequestPath(requestId));
   redirect(`${back}?notice=status`);
-}
-
-export async function prepareAdminLinkedReceipt(input: {
-  parentRequestId: string;
-  body: string;
-  files: FileMeta[];
-  workLocation: string;
-}): Promise<PrepareSuccess | ActionFailure> {
-  if (!isUuid(input.parentRequestId)) return { ok: false, error: "找不到這個請求。" };
-  if (!isDeskReady()) return { ok: false, error: "系統尚未完成設定。" };
-  await requireAdmin();
-
-  const parents = await sql()`
-    select id, client_id, topic
-    from requests
-    where id = ${input.parentRequestId}
-    limit 1
-  `;
-  const parent = parents[0];
-  const parentTopic = parent ? String(parent.topic ?? "") : "";
-  const clientId = parent ? String(parent.client_id ?? "") : "";
-  if (!parent || parentTopic !== "invoice" || !isUuid(clientId)) {
-    return { ok: false, error: "這個請求不能再開下一張單。" };
-  }
-
-  const parentId = String(parent.id);
-  const existing = await findLinkedChild(clientId, parentId);
-  if (existing) return duplicateFollowUpError(existing, adminRequestPath(existing.id));
-
-  const workLocation = parseWorkLocation(typeof input.workLocation === "string" ? input.workLocation : "");
-  if (!workLocation.ok) return workLocation;
-  const body = messageBody(input.body);
-  if (!body.ok) return body;
-  const files = normalizeFiles(input.files ?? []);
-  if (!Array.isArray(files)) return files;
-  if (files.length > 0 && !hasStorageEnv()) return { ok: false, error: "系統尚未完成設定。" };
-
-  const created = await insertLinkedRequest({
-    clientId,
-    topic: "receipt",
-    workLocation: workLocation.value,
-    parentRequestId: parentId,
-    body: body.value,
-  });
-  if (!created.ok && created.reason === "duplicate") {
-    return duplicateFollowUpError(created.child, adminRequestPath(created.child.id));
-  }
-  if (!created.ok && created.reason === "insert") return { ok: false, error: created.error };
-
-  const requestId = created.requestId;
-  const redirectTo = adminRequestPath(requestId);
-  revalidatePath(adminRequestPath(parentId));
-  revalidatePath("/admin");
-  revalidatePath(clientHomePath);
-  revalidatePath(clientRequestPath(parentId));
-  revalidatePath(redirectTo);
-  revalidatePath(clientRequestPath(requestId));
-  if (!created.ok) return { ok: false, error: created.error, redirectTo };
-
-  const prepared = await prepareUploads({
-    clientId,
-    requestId,
-    messageId: created.messageId,
-    files,
-  });
-  if (!prepared.ok) return { ...prepared, redirectTo };
-  return { ok: true, redirectTo, uploads: prepared.uploads };
 }
 
 export async function deleteRequest(formData: FormData): Promise<void> {

@@ -3,11 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { finalizeAdminUploads, prepareAdminLinkedReceipt, prepareAdminReply } from "@/lib/actions/admin";
-import { finalizeClientUploads, prepareClientReply, prepareClientRequest, prepareLinkedRequest } from "@/lib/actions/client";
+import { finalizeAdminUploads, prepareAdminReply } from "@/lib/actions/admin";
+import { finalizeClientUploads, prepareClientReply, prepareClientRequest } from "@/lib/actions/client";
 import { navigationAfterCreate } from "@/lib/client-nav";
-import { followUpEmptyPlaceholder, followUpPlaceholder, requestContentRequired } from "@/lib/document-chain";
-import { TOPICS, topicLabel, type TopicId } from "@/lib/domain";
+import { TOPICS, type TopicId } from "@/lib/domain";
 import { formatBytes } from "@/lib/format";
 import { acceptAttribute, MAX_FILES, validateFiles, type FileMeta } from "@/lib/files";
 import { MAX_WORK_LOCATION_LENGTH, parseWorkLocation } from "@/lib/work-location";
@@ -18,23 +17,15 @@ export function Composer({
   audience,
   mode,
   requestId,
-  parentRequestId,
-  topic: fixedTopic,
-  initialWorkLocation = "",
-  initialBody = "",
 }: {
   audience: Audience;
-  mode: "create" | "reply" | "follow";
+  mode: "create" | "reply";
   requestId?: string;
-  parentRequestId?: string;
-  topic?: TopicId;
-  initialWorkLocation?: string;
-  initialBody?: string;
 }) {
   const router = useRouter();
-  const [topic, setTopic] = useState<TopicId | null>(mode === "follow" ? fixedTopic ?? null : null);
-  const [workLocation, setWorkLocation] = useState(initialWorkLocation);
-  const [body, setBody] = useState(initialBody);
+  const [topic, setTopic] = useState<TopicId | null>(null);
+  const [workLocation, setWorkLocation] = useState("");
+  const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [continueHref, setContinueHref] = useState<string | null>(null);
@@ -60,12 +51,8 @@ export function Composer({
       setError("請選擇事項。");
       return;
     }
-    if (mode === "follow" && !topic) {
-      setError("這個請求不能再開下一張單。");
-      return;
-    }
     let workLocationValue = "";
-    if (mode === "create" || mode === "follow") {
+    if (mode === "create") {
       const parsedLocation = parseWorkLocation(workLocation);
       if (!parsedLocation.ok) {
         setError(parsedLocation.error);
@@ -77,37 +64,23 @@ export function Composer({
       setError(invalid);
       return;
     }
-    if (requestContentRequired(mode) && !body.trim() && files.length === 0) {
+    if (!body.trim() && files.length === 0) {
       setError("請填寫內容，或上載至少一個檔案。");
       return;
     }
 
     setPending(true);
     const prepared =
-      mode === "follow" && audience === "admin"
-        ? await prepareAdminLinkedReceipt({
-            parentRequestId: parentRequestId ?? "",
-            body,
-            files: metas,
-            workLocation: workLocationValue,
-          })
-        : audience === "admin"
-          ? await prepareAdminReply({ requestId: requestId ?? "", body, files: metas })
-          : mode === "follow"
-            ? await prepareLinkedRequest({
-                parentRequestId: parentRequestId ?? "",
-                body,
-                files: metas,
-                workLocation: workLocationValue,
-              })
-            : mode === "create"
-              ? await prepareClientRequest({
-                  topic: topic ?? "",
-                  body,
-                  files: metas,
-                  workLocation: workLocationValue,
-                })
-              : await prepareClientReply({ requestId: requestId ?? "", body, files: metas });
+      audience === "admin"
+        ? await prepareAdminReply({ requestId: requestId ?? "", body, files: metas })
+        : mode === "create"
+          ? await prepareClientRequest({
+              topic: topic ?? "",
+              body,
+              files: metas,
+              workLocation: workLocationValue,
+            })
+          : await prepareClientReply({ requestId: requestId ?? "", body, files: metas });
 
     if (!prepared.ok) {
       setPending(false);
@@ -180,30 +153,12 @@ export function Composer({
       return;
     }
 
-    if (audience === "client" && mode === "follow") {
-      const navigation = navigationAfterCreate(prepared.redirectTo);
-      window.location.replace(navigation.href);
-      return;
-    }
-
-    if (audience === "admin" && mode === "follow") {
-      window.location.replace(prepared.redirectTo);
-      return;
-    }
-
     router.push(prepared.redirectTo);
     router.refresh();
   }
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      {mode === "follow" && topic ? (
-        <p className="text-sm">
-          <span className="font-semibold">事項</span>
-          <span className="ml-2">{topicLabel(topic)}</span>
-        </p>
-      ) : null}
-
       {mode === "create" ? (
         <fieldset>
           <legend className="text-sm font-semibold">事項</legend>
@@ -234,7 +189,7 @@ export function Composer({
         </fieldset>
       ) : null}
 
-      {mode === "create" || mode === "follow" ? (
+      {mode === "create" ? (
         <label className="flex flex-col gap-2 text-sm font-semibold">
           工作地點
           <input
@@ -259,13 +214,7 @@ export function Composer({
           onChange={(event) => setBody(event.target.value)}
           rows={5}
           maxLength={4000}
-          placeholder={
-            mode === "follow" && topic
-              ? initialBody.trim()
-                ? followUpPlaceholder(topic)
-                : followUpEmptyPlaceholder()
-              : "例如：請根據附件的工程單出報價，抬頭用公司全名。"
-          }
+          placeholder="例如：請根據附件的工程單出報價，抬頭用公司全名。"
           className="rounded-2xl border border-line bg-white px-3 py-3 font-normal leading-7"
         />
       </label>
