@@ -794,6 +794,19 @@ set status = 'issued',
     admin_unread = false
 where id = '10101010-1010-4010-8010-101010101010';
 
+select pg_temp.expect(
+  (select private.request_stage_title('quote', 'quote') = '出報價單'
+      and private.request_stage_title('quote', 'invoice') = '出發票'
+      and private.request_stage_title('invoice', 'invoice') = '出發票'
+      and private.request_stage_title('quote', 'receipt') = '已收錢，請出收據'
+      and private.request_stage_title('invoice', 'receipt') = '已收錢，請出收據'
+      and private.request_stage_title('receipt', 'receipt') = '已收錢，請出收據'
+      and private.request_stage_title('other', 'other') = '其他'
+      and private.request_stage_title('quote', 'other') is null
+      and private.request_stage_title('receipt', 'invoice') is null),
+  'request_stage_title keeps the invoice and the paid receipt apart'
+);
+
 do $$
 declare
   requests_before int;
@@ -838,7 +851,7 @@ select pg_temp.expect(
 );
 
 select pg_temp.expect(
-  (select body = '階段由出報價單改為已出報價單，請出發票'
+  (select body = '階段由出報價單改為出發票'
       and stage_from = 'quote'
       and stage_to = 'invoice'
    from public.messages
@@ -846,6 +859,13 @@ select pg_temp.expect(
      and kind = 'stage_change'),
   'the quotation stage change is written on that request timeline'
 );
+
+update public.messages
+set body = '舊時間線原文'
+where request_id = '10101010-1010-4010-8010-101010101010'
+  and kind = 'stage_change'
+  and stage_from = 'quote'
+  and stage_to = 'invoice';
 
 select pg_temp.expect(
   (select count(*) = 1
@@ -924,10 +944,20 @@ select pg_temp.expect(
           and kind = 'stage_change'
           and stage_from = 'invoice'
           and stage_to = 'receipt'
-      ) = '階段由已出報價單，請出發票改為發票，已收錢，請出收據'
+      ) = '階段由出發票改為已收錢，請出收據'
    from public.requests
    where id = '10101010-1010-4010-8010-101010101010'),
   'a quotation can then ask for a receipt without skipping or keeping the old status'
+);
+
+select pg_temp.expect(
+  (select body = '舊時間線原文'
+   from public.messages
+   where request_id = '10101010-1010-4010-8010-101010101010'
+     and kind = 'stage_change'
+     and stage_from = 'quote'
+     and stage_to = 'invoice'),
+  'an earlier stage_change body stays as it was stored'
 );
 
 do $$
@@ -1031,7 +1061,7 @@ select pg_temp.expect(
         from public.messages
         where request_id = '20202020-2020-4020-8020-202020202020'
           and kind = 'stage_change'
-      ) = '階段由出發票改為發票，已收錢，請出收據'
+      ) = '階段由出發票改為已收錢，請出收據'
    from public.requests
    where id = '20202020-2020-4020-8020-202020202020'),
   'an invoice request advances to the receipt stage on the same row'

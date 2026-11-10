@@ -12,6 +12,7 @@ const statusSql = readFileSync(new URL("../db/migrations/0003_request_status.sql
 const locationSql = readFileSync(new URL("../db/migrations/0004_work_location.sql", import.meta.url), "utf8");
 const chainSql = readFileSync(new URL("../db/migrations/0005_document_chain.sql", import.meta.url), "utf8");
 const stageSql = readFileSync(new URL("../db/migrations/0006_request_stage.sql", import.meta.url), "utf8");
+const titleSql = readFileSync(new URL("../db/migrations/0007_stage_titles.sql", import.meta.url), "utf8");
 const schemaScript = readFileSync(new URL("../scripts/test-schema.sh", import.meta.url), "utf8");
 const neonConfig = readFileSync(new URL("../neon.ts", import.meta.url), "utf8");
 const data = readFileSync(new URL("./data.ts", import.meta.url), "utf8");
@@ -80,10 +81,11 @@ test("a request stage stays on the same row and only moves one step forward", ()
   assert.match(stageSql, /new\.admin_unread := true/);
   assert.match(stageSql, /kind = 'stage_change'/);
   assert.match(stageSql, /when topic = 'quote' and stage = 'quote' then '出報價單'/);
-  assert.match(stageSql, /when topic = 'quote' and stage = 'invoice' then '已出報價單，請出發票'/);
-  assert.match(stageSql, /when topic = 'quote' and stage = 'receipt' then '發票，已收錢，請出收據'/);
+  assert.match(stageSql, /when topic = 'quote' and stage = 'invoice' then '出發票'/);
+  assert.match(stageSql, /when topic = 'quote' and stage = 'receipt' then '已收錢，請出收據'/);
   assert.match(stageSql, /when topic = 'invoice' and stage = 'invoice' then '出發票'/);
-  assert.match(stageSql, /when topic = 'invoice' and stage = 'receipt' then '發票，已收錢，請出收據'/);
+  assert.match(stageSql, /when topic = 'invoice' and stage = 'receipt' then '已收錢，請出收據'/);
+  assert.match(stageSql, /when topic = 'receipt' and stage = 'receipt' then '已收錢，請出收據'/);
   assert.match(stageSql, /'stage_changed'/);
   assert.match(stageSql, /r\.stage/);
   assert.doesNotMatch(stageSql, /old\.topic = 'quote' and old\.stage = 'quote' and new\.stage = 'receipt'/);
@@ -92,6 +94,31 @@ test("a request stage stays on the same row and only moves one step forward", ()
   assert.doesNotMatch(stageSql, /postgres:\/\//i);
   assert.doesNotMatch(stageSql, /password_hash/i);
   assert.doesNotMatch(stageSql, /neon_auth\./);
+  assert.doesNotMatch(stageSql, /已出報價單，請出發票/);
+  assert.doesNotMatch(stageSql, /發票，已收錢，請出收據/);
+});
+
+test("stage titles separate the invoice from the paid receipt", () => {
+  assert.match(titleSql, /create or replace function private\.request_stage_title/);
+  assert.match(titleSql, /DATABASE_URL_UNPOOLED/);
+  assert.match(titleSql, /0006_request_stage\.sql/);
+  assert.match(titleSql, /when topic = 'quote' and stage = 'quote' then '出報價單'/);
+  assert.match(titleSql, /when topic = 'quote' and stage = 'invoice' then '出發票'/);
+  assert.match(titleSql, /when topic = 'invoice' and stage = 'invoice' then '出發票'/);
+  assert.match(titleSql, /when topic = 'quote' and stage = 'receipt' then '已收錢，請出收據'/);
+  assert.match(titleSql, /when topic = 'invoice' and stage = 'receipt' then '已收錢，請出收據'/);
+  assert.match(titleSql, /when topic = 'receipt' and stage = 'receipt' then '已收錢，請出收據'/);
+  assert.match(titleSql, /when topic = 'other' and stage = 'other' then '其他'/);
+  assert.match(titleSql, /revoke all on function private\.request_stage_title/);
+  assert.doesNotMatch(titleSql, /已出報價單，請出發票/);
+  assert.doesNotMatch(titleSql, /發票，已收錢，請出收據/);
+  assert.doesNotMatch(titleSql, /update\s+(public\.)?messages/i);
+  assert.doesNotMatch(titleSql, /update\s+(public\.)?requests/i);
+  assert.doesNotMatch(titleSql, /insert\s+into/i);
+  assert.doesNotMatch(titleSql, /delete\s+from/i);
+  assert.doesNotMatch(titleSql, /neon_auth\./);
+  assert.doesNotMatch(titleSql, /postgres:\/\//i);
+  assert.doesNotMatch(titleSql, /password/i);
 });
 
 test("deleting a request cascades to messages, attachments, and notifications", () => {

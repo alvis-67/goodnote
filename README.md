@@ -8,7 +8,7 @@ The interface is Traditional Chinese (Hong Kong).
 
 - A client signs in with a login name and password set by the admin, and sees only that company's requests. The login name does not have to be an email. Email on the client record is optional. After a new request is submitted, 「我的請求」 on that screen returns to the list. Signing in again is not required.
 - A new request has a topic (出報價單 / 出發票 / 出收據 / 其他), a work location (工作地點), text, and files, and starts at 待處理. Requests created before the location column still open. The topic is the document the request started as and does not change.
-- A quotation stays one request. Its title moves 出報價單, then 已出報價單，請出發票, then 發票，已收錢，請出收據. A request that starts as 出發票 can move to 發票，已收錢，請出收據. 出收據 and 其他 do not move on. The client or the admin advances it from the request page; there is no second form. Messages, files, and the work location stay on that request. Each step is written on the timeline, the status returns to 待處理, and the admin can still set 待處理, 處理中, 已出單, or 已入機 at every step. It cannot skip a step or move backward.
+- A quotation stays one request. Its title moves 出報價單, then 出發票, then 已收錢，請出收據. 出發票 is its own stage. The client asks for the invoice after their customer accepts the quotation, and the request becomes 已收錢，請出收據 only after that client confirms payment. A request that starts as 出發票 can move only to 已收錢，請出收據. A request that starts as 出收據 is titled 已收錢，請出收據. 出收據 and 其他 do not move on, and a quotation cannot jump straight to the receipt. The client or the admin advances it from the request page; there is no second form. Messages, files, and the work location stay on that request. Each step is written on the timeline, the status returns to 待處理, and the admin can still set 待處理, 處理中, 已出單, or 已入機 at every step. It cannot skip a step or move backward. While the request is 出發票, the admin is asked to issue the invoice. The admin is asked to issue the receipt only after the request is 已收錢，請出收據.
 - Requests already linked as a separate invoice or receipt stay in the list and can still be opened. New work does not create another linked request.
 - The request page is a two-way thread. Status changes and stage changes appear on the same timeline.
 - Only an allowlisted admin can sign in, see every request, reply, attach files, and set the status at any time to 待處理, 處理中, 已出單, or 已入機. The admin can delete a request from the desk. Deleting it removes the messages, attachments, and notifications as well. The admin can also delete a client from the clients page after a confirmation step. That ends the client's sessions immediately, and removes that client's requests, messages, and uploaded files. It cannot be undone. A client cannot delete an account.
@@ -53,9 +53,10 @@ psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0003_request_s
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0004_work_location.sql
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0005_document_chain.sql
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0006_request_stage.sql
+psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0007_stage_titles.sql
 ```
 
-If `0001` through `0005_document_chain` are already applied, run only `0006_request_stage.sql`. The hosted database needs that file after this change is merged. Do not apply it from the app.
+If `0001` through `0006_request_stage` are already applied, run only `0007_stage_titles.sql` with the direct connection. After this change is merged, apply that file to the Goodnote Neon database only. Do not apply it to any other project, and do not apply it from the app.
 
 3. Allow an admin, if that email is not already listed. The address must be lowercase:
 
@@ -105,7 +106,7 @@ Old `/c/{token}` URLs send the visitor to `/client/login`. They do not show that
    - `AWS_SECRET_ACCESS_KEY`
    - `AWS_ENDPOINT_URL_S3`
    - `AWS_REGION`
-3. Apply `db/migrations/0002_accounts.sql`, `db/migrations/0003_request_status.sql`, `db/migrations/0004_work_location.sql`, `db/migrations/0005_document_chain.sql`, and `db/migrations/0006_request_stage.sql` with the direct connection if they are not applied yet. Do not apply them from the app. `0006_request_stage.sql` is required for the same-request stage titles.
+3. Apply `db/migrations/0002_accounts.sql`, `db/migrations/0003_request_status.sql`, `db/migrations/0004_work_location.sql`, `db/migrations/0005_document_chain.sql`, `db/migrations/0006_request_stage.sql`, and `db/migrations/0007_stage_titles.sql` with the direct connection if they are not applied yet. Do not apply them from the app. `0006_request_stage.sql` keeps the quotation, invoice, and receipt on one request. `0007_stage_titles.sql` is the title update for that same request. After this change is merged, apply `0007_stage_titles.sql` to the Goodnote Neon database only, not to any other project.
 4. Set the first admin password with `scripts/set-admin-password.ts` against the hosted database, using `DATABASE_URL_UNPOOLED` and `ADMIN_EMAIL=alvis@alvis.hk`. Until that hash exists, the admin login will say the password has not been set.
 5. Run `scripts/configure-storage-cors.mjs` with `STORAGE_CORS_ORIGINS` set to the production origin (and preview origins, if uploads should work there).
 6. Deploy. File bytes upload from the browser to the private bucket with a short-lived presigned URL, so phone photos are not limited by the platform request-body size. Downloads use a separate signed URL that expires after two hours.

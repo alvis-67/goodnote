@@ -127,11 +127,11 @@ set search_path = pg_catalog
 as $$
   select case
     when topic = 'quote' and stage = 'quote' then '出報價單'
-    when topic = 'quote' and stage = 'invoice' then '已出報價單，請出發票'
-    when topic = 'quote' and stage = 'receipt' then '發票，已收錢，請出收據'
+    when topic = 'quote' and stage = 'invoice' then '出發票'
     when topic = 'invoice' and stage = 'invoice' then '出發票'
-    when topic = 'invoice' and stage = 'receipt' then '發票，已收錢，請出收據'
-    when topic = 'receipt' and stage = 'receipt' then '出收據'
+    when topic = 'quote' and stage = 'receipt' then '已收錢，請出收據'
+    when topic = 'invoice' and stage = 'receipt' then '已收錢，請出收據'
+    when topic = 'receipt' and stage = 'receipt' then '已收錢，請出收據'
     when topic = 'other' and stage = 'other' then '其他'
     else null
   end;

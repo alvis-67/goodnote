@@ -29,3 +29,8 @@ export function AdvanceStage({
     </form>
   );
 }
+
+export function StagePrompt({ prompt }: { prompt?: string | null }) {
+  if (!prompt) return null;
+  return <p className="mt-3 font-semibold">{prompt}</p>;
+}
