@@ -7,12 +7,13 @@ import { requireAdmin } from "@/lib/auth";
 import { destroyCurrentSession } from "@/lib/auth/session";
 import { normalizeLoginName } from "@/lib/auth/login-name";
 import { hashPassword, passwordError, verifyPassword } from "@/lib/auth/password";
+import { clientsListHref } from "@/lib/client-delete";
 import { optionalEmail, parseClientAccount } from "@/lib/clients";
 import { dbErrorCode, sql } from "@/lib/db";
 import { isDeleteConfirmed, isStatusId } from "@/lib/domain";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
+import { storageKeysByRequest, type FileMeta } from "@/lib/files";
 import { parseWorkLocation } from "@/lib/work-location";
-import type { FileMeta } from "@/lib/files";
 import { duplicateFollowUpError, findLinkedChild, insertLinkedRequest } from "@/lib/linked-request";
 import { adminRequestPath, clientHomePath, clientRequestPath } from "@/lib/paths";
 import { asText } from "@/lib/rows";
@@ -217,6 +218,49 @@ export async function deleteRequest(formData: FormData): Promise<void> {
   revalidatePath(clientHomePath);
   revalidatePath(clientRequestPath(requestId));
   redirect("/admin?notice=deleted");
+}
+
+export async function deleteClient(formData: FormData): Promise<void> {
+  const clientId = String(formData.get("clientId") ?? "");
+  if (!isUuid(clientId)) redirect(clientsListHref({ error: "missing" }));
+  await requireAdmin();
+  if (!isDeleteConfirmed(formData.get("confirm"))) {
+    redirect(clientsListHref({ deleteId: clientId, error: "confirm" }));
+  }
+
+  let removed = false;
+  try {
+    const files = await sql()`
+      select request_id, storage_path
+      from attachments
+      where client_id = ${clientId}
+    `;
+    const rows = await sql()`
+      delete from clients
+      where id = ${clientId}
+      returning id
+    `;
+    removed = Boolean(rows[0]);
+    if (removed) {
+      const groups = storageKeysByRequest(
+        files.map((file) => ({
+          requestId: String(file.request_id ?? ""),
+          path: String(file.storage_path ?? ""),
+        })),
+      );
+      await Promise.all(groups.map((group) => deleteRequestFiles(group.requestId, group.paths)));
+    }
+  } catch (error) {
+    if (isRedirect(error)) throw error;
+    console.error("client delete failed", dbErrorCode(error));
+    redirect(clientsListHref({ error: "delete" }));
+  }
+
+  if (!removed) redirect(clientsListHref({ error: "missing" }));
+  revalidatePath("/admin/clients");
+  revalidatePath("/admin");
+  revalidatePath(clientHomePath);
+  redirect(clientsListHref({ notice: "deleted" }));
 }
 
 export async function prepareAdminReply(input: {

@@ -7,6 +7,7 @@ import {
   buildStoragePath,
   parseStoragePath,
   resolveFile,
+  storageKeysByRequest,
   storageKeysForRequest,
   validateFiles,
 } from "./files";
@@ -71,4 +72,45 @@ test("deleting a request only removes that request's stored files", () => {
     extension: "pdf",
   });
   assert.deepEqual(storageKeysForRequest(requestId, [own, own, other, "../secret", ""]), [own]);
+});
+
+test("deleting a client groups stored files by request and drops paths from other requests", () => {
+  const clientId = "11111111-1111-4111-8111-111111111111";
+  const quoteId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const invoiceId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const quoteFile = buildStoragePath({
+    clientId,
+    requestId: quoteId,
+    messageId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    attachmentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    extension: "pdf",
+  });
+  const invoiceFile = buildStoragePath({
+    clientId,
+    requestId: invoiceId,
+    messageId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    attachmentId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    extension: "jpg",
+  });
+  const mismatched = buildStoragePath({
+    clientId,
+    requestId: invoiceId,
+    messageId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    attachmentId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+    extension: "png",
+  });
+  assert.deepEqual(
+    storageKeysByRequest([
+      { requestId: quoteId, path: quoteFile },
+      { requestId: quoteId, path: quoteFile },
+      { requestId: invoiceId, path: invoiceFile },
+      { requestId: quoteId, path: mismatched },
+      { requestId: quoteId, path: "../secret" },
+      { requestId: " ", path: quoteFile },
+    ]),
+    [
+      { requestId: quoteId, paths: [quoteFile] },
+      { requestId: invoiceId, paths: [invoiceFile] },
+    ],
+  );
 });
