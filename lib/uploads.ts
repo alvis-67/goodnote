@@ -10,8 +10,10 @@ import {
   parseStoragePath,
   resolveFile,
   buildStoragePath,
+  storageKeysForRequest,
   type FileMeta,
 } from "@/lib/files";
+import { hasStorageEnv } from "@/lib/env";
 import { createUploadUrl, deleteObject, inspectObject, signedDownloadUrl } from "@/lib/storage";
 
 export type PreparedUpload = {
@@ -113,6 +115,19 @@ export async function finalizeUploads(input: {
   }
 
   return { ok: true };
+}
+
+export async function deleteRequestFiles(requestId: string, paths: string[]): Promise<void> {
+  if (!hasStorageEnv()) return;
+  await Promise.all(
+    storageKeysForRequest(requestId, paths).map(async (path) => {
+      try {
+        await deleteObject(path);
+      } catch (error) {
+        console.error("attachment object delete failed", error instanceof Error ? error.name : "error");
+      }
+    }),
+  );
 }
 
 export async function signAttachmentPaths(

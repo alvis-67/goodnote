@@ -137,3 +137,16 @@ export function parseStoragePath(path: string): StoragePathParts | null {
 export function buildStoragePath(parts: StoragePathParts): string {
   return `${parts.clientId}/${parts.requestId}/${parts.messageId}/${parts.attachmentId}.${parts.extension}`;
 }
+
+export function storageKeysForRequest(requestId: string, paths: string[]): string[] {
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const path of paths) {
+    if (seen.has(path)) continue;
+    const parts = parseStoragePath(path);
+    if (!parts || parts.requestId !== requestId) continue;
+    seen.add(path);
+    keys.push(path);
+  }
+  return keys;
+}

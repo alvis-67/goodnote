@@ -48,7 +48,13 @@ else
   PSQL="$(find_bin psql)"
 fi
 
-for migration in "$ROOT"/db/migrations/*.sql; do
+shopt -s nullglob
+migrations=("$ROOT"/db/migrations/*.sql)
+if [[ ${#migrations[@]} -eq 0 ]]; then
+  echo "no migrations found" >&2
+  exit 1
+fi
+for migration in "${migrations[@]}"; do
   "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
 done
 "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT/db/tests/schema_smoke.sql"

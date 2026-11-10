@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { deleteRequest } from "@/lib/actions/admin";
+import { DeleteRequest } from "@/components/delete-request";
 import { StatusBadge } from "@/components/status-badge";
 import { loadAdminInbox } from "@/lib/data";
 import { STATUSES, TOPICS, isStatusId, isTopicId, topicLabel } from "@/lib/domain";
 import { excerpt, formatRelative } from "@/lib/format";
+import { adminDeskHref } from "@/lib/paths";
 import { isUuid } from "@/lib/tokens";
 
 export const metadata: Metadata = { title: "工作台" };
@@ -12,13 +15,15 @@ export const metadata: Metadata = { title: "工作台" };
 export default async function AdminHomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; topic?: string; client?: string }>;
+  searchParams: Promise<{ status?: string; topic?: string; client?: string; delete?: string; notice?: string; error?: string }>;
 }) {
   const params = await searchParams;
   const status = params.status && isStatusId(params.status) ? params.status : undefined;
   const topic = params.topic && isTopicId(params.topic) ? params.topic : undefined;
   const clientId = params.client && isUuid(params.client) ? params.client : undefined;
+  const deleteId = params.delete && isUuid(params.delete) ? params.delete : undefined;
   const inbox = await loadAdminInbox({ status, topic, clientId });
+  const deskHref = adminDeskHref({ status, topic, clientId });
 
   return (
     <main>
@@ -76,6 +81,15 @@ export default async function AdminHomePage({
         </div>
       </form>
 
+      {params.notice === "deleted" ? (
+        <p role="status" className="mt-4 rounded-2xl bg-ok-bg px-4 py-3 text-sm text-ok">
+          請求已刪除。
+        </p>
+      ) : null}
+      {params.error === "delete" ? (
+        <p className="mt-4 rounded-2xl bg-danger-bg px-4 py-3 text-sm text-danger">未能刪除這則請求。</p>
+      ) : null}
+
       {inbox.rows.length === 0 ? (
         <p className="mt-8 rounded-3xl border border-dashed border-navy/15 bg-desk-card px-5 py-8 text-muted">
           未有符合條件的請求。客戶提交後會顯示在這裡。
@@ -85,13 +99,13 @@ export default async function AdminHomePage({
           {inbox.rows.map((row) => {
             const fresh = row.admin_unread && !row.admin_last_read_at;
             return (
-              <li key={row.id}>
-                <Link
-                  href={`/admin/requests/${row.id}`}
-                  className={`block rounded-3xl border bg-desk-card px-4 py-4 ${
-                    row.admin_unread ? "border-stamp" : "border-transparent"
-                  }`}
-                >
+              <li
+                key={row.id}
+                className={`rounded-3xl border bg-desk-card px-4 py-4 ${
+                  row.admin_unread ? "border-stamp" : "border-transparent"
+                }`}
+              >
+                <Link href={`/admin/requests/${row.id}`} className="block">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-semibold">
                       {row.company_name}
@@ -112,6 +126,17 @@ export default async function AdminHomePage({
                     ) : null}
                   </div>
                 </Link>
+                <div className="mt-3 flex justify-end border-t border-navy/10 pt-3">
+                  <DeleteRequest
+                    requestId={row.id}
+                    confirming={deleteId === row.id}
+                    action={deleteRequest}
+                    askHref={adminDeskHref({ status, topic, clientId, deleteId: row.id })}
+                    cancelHref={deskHref}
+                    askLabel={`刪除${row.company_name}的${topicLabel(row.topic)}`}
+                    compact
+                  />
+                </div>
               </li>
             );
           })}

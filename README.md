@@ -9,7 +9,7 @@ The interface is Traditional Chinese (Hong Kong).
 - A client signs in with a login name and password set by the admin, and sees only that company's requests. The login name does not have to be an email. Email on the client record is optional.
 - A new request has a topic (出報價單 / 出發票 / 出收據 / 其他), text, and files, and starts at 待處理.
 - The request page is a two-way thread. Status changes appear on the same timeline.
-- Only an allowlisted admin can sign in, see every request, reply, attach files, and move status one step at a time: 待處理 → 處理中 → 已出單 → 已入機.
+- Only an allowlisted admin can sign in, see every request, reply, attach files, and set the status at any time to 待處理, 處理中, 已出單, or 已入機. The admin can delete a request from the desk. Deleting it removes the messages, attachments, and notifications as well.
 - New requests and later client messages are marked and sorted first on the admin desk.
 - The admin creates a client account and can later reset that client's password. Resetting a password ends that account's existing sessions.
 - Both desks show 登出. Signing out ends only that browser's session. A session stays valid until logout or a password change. It does not expire because of age or idle time.
@@ -47,9 +47,10 @@ Use the project that is already created. Do not create another one.
 ```bash
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0001_init.sql
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0002_accounts.sql
+psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0003_request_status.sql
 ```
 
-If `0001` is already applied, run only `0002_accounts.sql`.
+If `0001` and `0002_accounts` are already applied, run only `0003_request_status.sql`.
 
 3. Allow an admin, if that email is not already listed. The address must be lowercase:
 
@@ -99,7 +100,7 @@ Old `/c/{token}` URLs send the visitor to `/client/login`. They do not show that
    - `AWS_SECRET_ACCESS_KEY`
    - `AWS_ENDPOINT_URL_S3`
    - `AWS_REGION`
-3. Apply `db/migrations/0002_accounts.sql` with the direct connection if it is not applied yet. Do not apply it from the app.
+3. Apply `db/migrations/0002_accounts.sql` and `db/migrations/0003_request_status.sql` with the direct connection if they are not applied yet. Do not apply them from the app.
 4. Set the first admin password with `scripts/set-admin-password.ts` against the hosted database, using `DATABASE_URL_UNPOOLED` and `ADMIN_EMAIL=alvis@alvis.hk`. Until that hash exists, the admin login will say the password has not been set.
 5. Run `scripts/configure-storage-cors.mjs` with `STORAGE_CORS_ORIGINS` set to the production origin (and preview origins, if uploads should work there).
 6. Deploy. File bytes upload from the browser to the private bucket with a short-lived presigned URL, so phone photos are not limited by the platform request-body size. Downloads use a separate signed URL that expires after two hours.
@@ -111,8 +112,8 @@ There is no emailed forgot-password flow. Password resets are done by someone wh
 - Clients are accounts. The server reads the session cookie, checks that the session is not revoked, and that `credential_at` still matches the client's `password_changed_at`. Every client query filters on that session's client id. Internal notes and password hashes are not selected for client pages.
 - Admins are rows in `admin_allowlist` with a password hash. The session stores the email. It does not trust a profile field as a permission. Public self-signup is closed.
 - Login names are unique. Email on a client is optional contact information and is not the client login.
-- The database role can read every row. Only server code holds `DATABASE_URL`. Status transitions, the timeline, attachment scope, and in-app notification rows are still enforced by triggers.
-- Object storage credentials stay on the server. The bucket is private. Upload URLs last 10 minutes and are limited to one object key. The server checks size (20MB) and MIME type again before it stores the attachment row.
+- The database role can read every row. Only server code holds `DATABASE_URL`. Status values, the timeline, attachment scope, and in-app notification rows are still enforced by triggers. An admin can move a request between any of the four statuses. Deleting the request cascades to its messages, attachments, and notifications.
+- Object storage credentials stay on the server. The bucket is private. Upload URLs last 10 minutes and are limited to one object key. The server checks size (20MB) and MIME type again before it stores the attachment row. Deleting a request also deletes those objects from the bucket.
 - Session tokens are random. The database stores only an HMAC of the token, keyed with `SESSION_SECRET`. Password columns store scrypt hashes, never plaintext.
 
 Some browsers cap how long they keep a cookie (often about 400 days). The server still accepts a presented session after that span; it does not apply its own timeout. Visiting the app refreshes the cookie's browser lifetime without changing the session.
@@ -127,7 +128,7 @@ npm run test:schema
 npm run build
 ```
 
-`npm run test:schema` applies the migrations in `db/migrations` to a throwaway Postgres and checks the status machine, the timeline, notifications, attachment scope, login-name uniqueness, and that sessions have no expiry columns. It starts a temporary cluster when `DATABASE_URL` is unset. Do not point it at the hosted Neon project.
+`npm run test:schema` applies every file in [`db/migrations`](db/migrations) to a throwaway Postgres and checks status changes, deletion, the timeline, notifications, attachment scope, login-name uniqueness, and that sessions have no expiry columns. It starts a temporary cluster when `DATABASE_URL` is unset. Do not point it at the hosted Neon project.
 
 ## Later notifications
 
