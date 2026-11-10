@@ -11,6 +11,7 @@ import { isStatusId, isTopicId } from "@/lib/domain";
 import { hasDatabaseEnv, isDeskReady } from "@/lib/env";
 import { asBool, asIso, asText } from "@/lib/rows";
 import { isUuid } from "@/lib/tokens";
+import { displayWorkLocation } from "@/lib/work-location";
 
 export type PublicClient = Pick<ClientRow, "id" | "company_name" | "contact_name" | "phone">;
 
@@ -28,6 +29,7 @@ function requestFrom(row: Record<string, unknown>): RequestRow | null {
     client_id: String(row.client_id),
     topic,
     status,
+    work_location: displayWorkLocation(asText(row.work_location)),
     created_at: asIso(row.created_at),
     updated_at: asIso(row.updated_at),
     last_activity_at: asIso(row.last_activity_at),
@@ -75,7 +77,7 @@ export async function listClientRequests(): Promise<RequestRow[]> {
   const client = await currentClient();
   if (!hasDatabaseEnv() || !client) return [];
   const rows = await sql()`
-    select id, client_id, topic, status, created_at, updated_at, last_activity_at,
+    select id, client_id, topic, status, work_location, created_at, updated_at, last_activity_at,
            admin_unread, admin_last_read_at, client_unread, client_last_read_at
     from requests
     where client_id = ${client.id}
@@ -93,7 +95,7 @@ export async function getClientRequest(requestId: string): Promise<RequestRow | 
   const client = await currentClient();
   if (!hasDatabaseEnv() || !client || !isUuid(requestId)) return null;
   const rows = await sql()`
-    select id, client_id, topic, status, created_at, updated_at, last_activity_at,
+    select id, client_id, topic, status, work_location, created_at, updated_at, last_activity_at,
            admin_unread, admin_last_read_at, client_unread, client_last_read_at
     from requests
     where id = ${requestId}
@@ -203,7 +205,7 @@ export async function loadAdminInbox(filters: InboxFilters): Promise<{
   const clientId = filters.clientId ?? null;
   const [inbox, clients, unread] = await Promise.all([
     sql()`
-      select id, client_id, topic, status, created_at, updated_at, last_activity_at,
+      select id, client_id, topic, status, work_location, created_at, updated_at, last_activity_at,
              admin_unread, admin_last_read_at, client_unread, client_last_read_at,
              company_name, contact_name, latest_body
       from request_inbox
@@ -241,7 +243,7 @@ export async function getAdminRequest(requestId: string): Promise<{
   if (!isDeskReady() || !isUuid(requestId)) return null;
   await requireAdmin();
   const requests = await sql()`
-    select id, client_id, topic, status, created_at, updated_at, last_activity_at,
+    select id, client_id, topic, status, work_location, created_at, updated_at, last_activity_at,
            admin_unread, admin_last_read_at, client_unread, client_last_read_at
     from requests
     where id = ${requestId}

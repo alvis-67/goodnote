@@ -4,6 +4,7 @@ import Link from "next/link";
 import { deleteRequest } from "@/lib/actions/admin";
 import { DeleteRequest } from "@/components/delete-request";
 import { StatusBadge } from "@/components/status-badge";
+import { WorkLocation } from "@/components/work-location";
 import { loadAdminInbox } from "@/lib/data";
 import { STATUSES, TOPICS, isStatusId, isTopicId, topicLabel } from "@/lib/domain";
 import { excerpt, formatRelative } from "@/lib/format";
@@ -114,6 +115,7 @@ export default async function AdminHomePage({
                     </p>
                     <StatusBadge status={row.status} />
                   </div>
+                  <WorkLocation location={row.work_location} />
                   <p className="mt-2 text-sm text-muted">{excerpt(row.latest_body)}</p>
                   <div className="mt-3 flex items-center justify-between text-sm">
                     <time dateTime={row.last_activity_at} className="text-muted">

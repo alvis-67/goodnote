@@ -1,14 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { ClientRequestHeading } from "@/components/client-request-heading";
 import { Composer } from "@/components/composer";
 import { MarkClientRead } from "@/components/mark-read";
-import { StatusBadge } from "@/components/status-badge";
 import { Thread } from "@/components/thread";
 import { getClientRequest, loadClientThread } from "@/lib/data";
-import { topicLabel } from "@/lib/domain";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
-import { formatDateTime } from "@/lib/format";
 import { signAttachmentPaths } from "@/lib/uploads";
 
 export const metadata: Metadata = { title: "請求" };
@@ -29,13 +27,12 @@ export default async function ClientRequestPage({ params }: { params: Promise<{ 
   return (
     <main>
       <MarkClientRead requestId={request.id} />
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">{topicLabel(request.topic)}</h1>
-          <p className="mt-1 text-sm text-muted">建立於 {formatDateTime(request.created_at)}</p>
-        </div>
-        <StatusBadge status={request.status} />
-      </div>
+      <ClientRequestHeading
+        topic={request.topic}
+        status={request.status}
+        createdAt={request.created_at}
+        location={request.work_location}
+      />
       <div className="mt-5">
         <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} />
       </div>

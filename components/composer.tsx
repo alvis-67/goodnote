@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 
 import { finalizeAdminUploads, prepareAdminReply } from "@/lib/actions/admin";
 import { finalizeClientUploads, prepareClientReply, prepareClientRequest } from "@/lib/actions/client";
+import { navigationAfterCreate } from "@/lib/client-nav";
 import { TOPICS, type TopicId } from "@/lib/domain";
 import { formatBytes } from "@/lib/format";
 import { acceptAttribute, MAX_FILES, validateFiles, type FileMeta } from "@/lib/files";
+import { MAX_WORK_LOCATION_LENGTH, parseWorkLocation } from "@/lib/work-location";
 
 type Audience = "client" | "admin";
 
@@ -22,6 +24,7 @@ export function Composer({
 }) {
   const router = useRouter();
   const [topic, setTopic] = useState<TopicId | null>(null);
+  const [workLocation, setWorkLocation] = useState("");
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +51,15 @@ export function Composer({
       setError("請選擇事項。");
       return;
     }
+    let workLocationValue = "";
+    if (mode === "create" && audience === "client") {
+      const parsedLocation = parseWorkLocation(workLocation);
+      if (!parsedLocation.ok) {
+        setError(parsedLocation.error);
+        return;
+      }
+      workLocationValue = parsedLocation.value;
+    }
     if (invalid) {
       setError(invalid);
       return;
@@ -62,7 +74,12 @@ export function Composer({
       audience === "admin"
         ? await prepareAdminReply({ requestId: requestId ?? "", body, files: metas })
         : mode === "create"
-          ? await prepareClientRequest({ topic: topic ?? "", body, files: metas })
+          ? await prepareClientRequest({
+              topic: topic ?? "",
+              body,
+              files: metas,
+              workLocation: workLocationValue,
+            })
           : await prepareClientReply({ requestId: requestId ?? "", body, files: metas });
 
     if (!prepared.ok) {
@@ -130,6 +147,12 @@ export function Composer({
       return;
     }
 
+    if (audience === "client" && mode === "create") {
+      const navigation = navigationAfterCreate(prepared.redirectTo);
+      window.location.replace(navigation.href);
+      return;
+    }
+
     router.push(prepared.redirectTo);
     router.refresh();
   }
@@ -164,6 +187,24 @@ export function Composer({
             })}
           </div>
         </fieldset>
+      ) : null}
+
+      {mode === "create" ? (
+        <label className="flex flex-col gap-2 text-sm font-semibold">
+          工作地點
+          <input
+            value={workLocation}
+            onChange={(event) => setWorkLocation(event.target.value)}
+            type="text"
+            name="workLocation"
+            inputMode="text"
+            maxLength={MAX_WORK_LOCATION_LENGTH}
+            autoComplete="off"
+            aria-required="true"
+            placeholder="例如：九龍灣宏開道地盤"
+            className="rounded-2xl border border-line bg-white px-3 py-3 font-normal"
+          />
+        </label>
       ) : null}
 
       <label className="flex flex-col gap-2 text-sm font-semibold">
