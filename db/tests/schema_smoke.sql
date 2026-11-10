@@ -426,4 +426,86 @@ select pg_temp.expect(
   'a client session can be revoked'
 );
 
+insert into public.requests (id, client_id, topic, work_location)
+values (
+  'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  '11111111-1111-4111-8111-111111111111',
+  'quote',
+  '九龍灣地盤'
+);
+
+insert into public.requests (id, client_id, topic)
+values (
+  'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+  '11111111-1111-4111-8111-111111111111',
+  'invoice'
+);
+
+insert into public.requests (id, client_id, topic, work_location)
+values (
+  'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  '11111111-1111-4111-8111-111111111111',
+  'receipt',
+  repeat('地', 120)
+);
+
+select pg_temp.expect(
+  (select work_location = '九龍灣地盤'
+   from public.requests
+   where id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+  'a request stores the work location'
+);
+select pg_temp.expect(
+  (select work_location is null
+   from public.requests
+   where id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'),
+  'a request with no work location still loads'
+);
+select pg_temp.expect(
+  (select char_length(work_location) = 120
+   from public.requests
+   where id = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
+  'a work location may be 120 characters'
+);
+select pg_temp.expect(
+  (select work_location = '九龍灣地盤'
+   from public.request_inbox
+   where id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+  'the admin inbox can read the work location'
+);
+select pg_temp.expect(
+  (select work_location is null
+   from public.request_inbox
+   where id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'),
+  'the admin inbox still loads a request with no work location'
+);
+
+do $$
+begin
+  insert into public.requests (client_id, topic, work_location)
+  values ('11111111-1111-4111-8111-111111111111', 'other', '   ');
+  raise exception 'FAIL: blank work location stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  insert into public.requests (client_id, topic, work_location)
+  values ('11111111-1111-4111-8111-111111111111', 'other', repeat('地', 121));
+  raise exception 'FAIL: overlong work location stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
 rollback;

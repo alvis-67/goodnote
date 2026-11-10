@@ -26,6 +26,7 @@ export type RequestRow = {
   client_id: string;
   topic: TopicId;
   status: StatusId;
+  work_location: string | null;
   created_at: string;
   updated_at: string;
   last_activity_at: string;
@@ -70,6 +71,7 @@ export type InboxRow = {
   admin_last_read_at: string | null;
   client_unread: boolean;
   client_last_read_at: string | null;
+  work_location: string | null;
   company_name: string;
   contact_name: string | null;
   latest_body: string | null;

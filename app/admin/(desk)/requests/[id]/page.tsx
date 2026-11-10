@@ -9,6 +9,7 @@ import { MarkAdminRead } from "@/components/mark-read";
 import { StatusBadge } from "@/components/status-badge";
 import { StatusMenu } from "@/components/status-menu";
 import { Thread } from "@/components/thread";
+import { WorkLocation } from "@/components/work-location";
 import { getAdminRequest, loadAdminThread } from "@/lib/data";
 import { topicLabel } from "@/lib/domain";
 import { formatDateTime } from "@/lib/format";
@@ -52,6 +53,7 @@ export default async function AdminRequestPage({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-2xl font-semibold">{topicLabel(request.topic)}</h2>
+            <WorkLocation location={request.work_location} />
             <p className="mt-1 text-sm text-muted">建立於 {formatDateTime(request.created_at)}</p>
           </div>
           <StatusBadge status={request.status} />

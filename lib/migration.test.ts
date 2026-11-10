@@ -4,10 +4,12 @@ import test from "node:test";
 
 import { FILE_RULES, MAX_FILE_BYTES, STORAGE_BUCKET } from "./files";
 import { STATUSES } from "./domain";
+import { MAX_WORK_LOCATION_LENGTH } from "./work-location";
 
 const sql = readFileSync(new URL("../db/migrations/0001_init.sql", import.meta.url), "utf8");
 const accounts = readFileSync(new URL("../db/migrations/0002_accounts.sql", import.meta.url), "utf8");
 const statusSql = readFileSync(new URL("../db/migrations/0003_request_status.sql", import.meta.url), "utf8");
+const locationSql = readFileSync(new URL("../db/migrations/0004_work_location.sql", import.meta.url), "utf8");
 const schemaScript = readFileSync(new URL("../scripts/test-schema.sh", import.meta.url), "utf8");
 const neonConfig = readFileSync(new URL("../neon.ts", import.meta.url), "utf8");
 const data = readFileSync(new URL("./data.ts", import.meta.url), "utf8");
@@ -35,6 +37,17 @@ test("status can move between any of the four values", () => {
     assert.match(statusSql, new RegExp(`'${status.id}'`));
   }
   assert.match(schemaScript, /db\/migrations\/\*\.sql/);
+});
+
+test("work location is optional on old rows and limited to 120 characters", () => {
+  assert.match(locationSql, /add column work_location text/);
+  assert.match(locationSql, /work_location is null/);
+  assert.match(locationSql, new RegExp(`between 1 and ${MAX_WORK_LOCATION_LENGTH}`));
+  assert.match(locationSql, /r\.work_location/);
+  assert.doesNotMatch(locationSql, /work_location text not null/i);
+  assert.doesNotMatch(locationSql, /postgres:\/\//i);
+  assert.doesNotMatch(locationSql, /password_hash/i);
+  assert.doesNotMatch(locationSql, /insert\s+into/i);
 });
 
 test("deleting a request cascades to messages, attachments, and notifications", () => {
