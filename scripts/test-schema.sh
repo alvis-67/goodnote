@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Applies the migration to a throwaway Postgres and runs the RLS smoke test.
+# Applies the Neon migration to a throwaway Postgres and runs the schema smoke test.
 # Set DATABASE_URL to use an existing empty database. Otherwise a temporary
-# cluster is started. Never point this at a hosted Supabase project.
+# cluster is started. Never point this at the hosted Neon project.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -48,7 +48,6 @@ else
   PSQL="$(find_bin psql)"
 fi
 
-"$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT/scripts/rls-bootstrap.sql" >/dev/null
-"$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/migrations/20261110160000_init.sql" >/dev/null
-"$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/tests/rls_smoke.sql"
-echo "RLS smoke test passed"
+"$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT/db/migrations/0001_init.sql" >/dev/null
+"$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT/db/tests/schema_smoke.sql"
+echo "schema smoke test passed"

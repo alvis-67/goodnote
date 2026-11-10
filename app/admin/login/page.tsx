@@ -5,8 +5,7 @@ import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/login-form";
 import { SetupRequired } from "@/components/setup-required";
 import { currentAdminEmail, isAllowlisted } from "@/lib/auth";
-import { hasPublicEnv } from "@/lib/env-public";
-import { createClient } from "@/lib/supabase/server";
+import { isDeskReady } from "@/lib/env";
 
 export const metadata: Metadata = { title: "管理員登入" };
 
@@ -23,11 +22,11 @@ export default async function LoginPage({
 }) {
   await connection();
   const params = await searchParams;
-  if (!hasPublicEnv()) return <SetupRequired />;
+  if (!isDeskReady()) return <SetupRequired />;
 
-  const supabase = await createClient();
-  const email = await currentAdminEmail(supabase);
-  if (email && (await isAllowlisted(supabase, email))) redirect("/admin");
+  const email = await currentAdminEmail();
+  if (email && (await isAllowlisted(email))) redirect("/admin");
+  if (email) redirect("/auth/reject");
 
   const initialError = params.error ? errors[params.error] ?? "登入失敗，請再試一次。" : null;
 

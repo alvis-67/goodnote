@@ -2,59 +2,86 @@
 
 import { redirect } from "next/navigation";
 
-import { emailFromClaims, isAllowlisted } from "@/lib/auth";
-import { hasPublicEnv } from "@/lib/env-public";
+import { isAllowlisted, sessionEmail } from "@/lib/auth";
+import { normalizeEmail } from "@/lib/auth/email";
+import { getAuth } from "@/lib/auth/server";
+import { isDeskReady } from "@/lib/env";
 import { requestOrigin } from "@/lib/origin";
-import { createClient } from "@/lib/supabase/server";
-import { createSecretClient, hasSecretEnv } from "@/lib/supabase/secret";
 
 export type AuthResult = { ok: true } | { ok: false; error: string };
 
-function normalizeEmail(email: string): string | null {
-  const value = email.trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || value.length > 200) return null;
-  return value;
+type AuthError = { message?: string; status?: number; code?: string };
+
+// The installed server client builds email OTP and magic link from its endpoint
+// table at runtime. The published sign-in type still only lists email and social.
+type PasswordlessAuth = {
+  emailOtp: {
+    sendVerificationOtp: (input: { email: string; type: "sign-in" }) => Promise<{ error: AuthError | null }>;
+  };
+  signIn: {
+    emailOtp: (input: { email: string; otp: string }) => Promise<{ error: AuthError | null }>;
+    magicLink: (input: { email: string; callbackURL: string }) => Promise<{ error: AuthError | null }>;
+  };
+  getSession: () => Promise<{ data: { user?: { email?: string | null } | null } | null; error: AuthError | null }>;
+  signOut: () => Promise<unknown>;
+};
+
+function passwordlessAuth(): PasswordlessAuth {
+  return getAuth() as unknown as PasswordlessAuth;
+}
+
+function mapSendError(error: AuthError): string {
+  const code = (error.code ?? "").toUpperCase();
+  const message = (error.message ?? "").toLowerCase();
+  if (error.status === 429 || code.includes("RATE") || code.includes("TOO_MANY") || message.includes("rate")) {
+    return "嘗試次數太多，請稍後再試。";
+  }
+  if (
+    code.includes("USER_NOT_FOUND") ||
+    code.includes("SIGNUP") ||
+    message.includes("user not found") ||
+    message.includes("sign up disabled") ||
+    message.includes("signup")
+  ) {
+    return "這個電郵尚未可以登入。請確認管理員允許清單，以及 Neon Auth 已開啟電郵驗證碼登入。";
+  }
+  return "未能送出登入電郵，請稍後再試。";
 }
 
 export async function sendAdminLoginCode(email: string): Promise<AuthResult> {
   const normalized = normalizeEmail(email);
   if (!normalized) return { ok: false, error: "請輸入有效的電郵地址。" };
-  if (!hasPublicEnv() || !hasSecretEnv()) return { ok: false, error: "系統尚未完成設定。" };
+  if (!isDeskReady()) return { ok: false, error: "系統尚未完成設定。" };
+  if (!(await isAllowlisted(normalized))) return { ok: false, error: "這個電郵不在管理員允許清單內。" };
 
-  const secret = createSecretClient();
-  const { data: allowed, error: allowError } = await secret
-    .from("admin_allowlist")
-    .select("email")
-    .eq("email", normalized)
-    .maybeSingle();
-  if (allowError) return { ok: false, error: "暫時未能核對管理員名單，請稍後再試。" };
-  if (!allowed) return { ok: false, error: "這個電郵不在管理員允許清單內。" };
-
-  const supabase = await createClient();
-  const origin = await requestOrigin();
-  const { error } = await supabase.auth.signInWithOtp({
-    email: normalized,
-    options: {
-      shouldCreateUser: false,
-      emailRedirectTo: `${origin}/auth/confirm`,
-    },
-  });
-  if (error) {
-    const message = error.message.toLowerCase();
-    if (message.includes("rate") || error.status === 429) {
-      return { ok: false, error: "嘗試次數太多，請稍後再試。" };
+  const auth = passwordlessAuth();
+  try {
+    const otp = await auth.emailOtp.sendVerificationOtp({
+      email: normalized,
+      type: "sign-in",
+    });
+    if (otp.error) {
+      console.error("sendVerificationOtp failed", otp.error.code ?? otp.error.status);
+      return { ok: false, error: mapSendError(otp.error) };
     }
-    if (
-      message.includes("not found") ||
-      message.includes("signups not allowed") ||
-      message.includes("user not allowed") ||
-      message.includes("signups")
-    ) {
-      return { ok: false, error: "這個電郵尚未建立登入帳戶。請先在 Supabase 建立使用者。" };
-    }
-    console.error("signInWithOtp failed", error.code);
+  } catch (error) {
+    console.error("sendVerificationOtp threw", error instanceof Error ? error.name : "error");
     return { ok: false, error: "未能送出登入電郵，請稍後再試。" };
   }
+
+  try {
+    const origin = await requestOrigin();
+    const link = await auth.signIn.magicLink({
+      email: normalized,
+      callbackURL: `${origin}/auth/confirm`,
+    });
+    if (link.error) {
+      console.error("magic link was not sent", link.error.code ?? link.error.status);
+    }
+  } catch (error) {
+    console.error("magic link threw", error instanceof Error ? error.name : "error");
+  }
+
   return { ok: true };
 }
 
@@ -63,20 +90,17 @@ export async function verifyAdminLoginCode(email: string, code: string): Promise
   const token = code.trim();
   if (!normalized) return { ok: false, error: "請輸入有效的電郵地址。" };
   if (!/^\d{6,10}$/.test(token)) return { ok: false, error: "請輸入電郵內的數字驗證碼。" };
-  if (!hasPublicEnv()) return { ok: false, error: "系統尚未完成設定。" };
+  if (!isDeskReady()) return { ok: false, error: "系統尚未完成設定。" };
+  if (!(await isAllowlisted(normalized))) return { ok: false, error: "這個電郵不在管理員允許清單內。" };
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.verifyOtp({
-    email: normalized,
-    token,
-    type: "email",
-  });
+  const auth = passwordlessAuth();
+  const { error } = await auth.signIn.emailOtp({ email: normalized, otp: token });
   if (error) return { ok: false, error: "驗證碼不正確或已過期。" };
 
-  const { data } = await supabase.auth.getClaims();
-  const claimEmail = emailFromClaims(data?.claims);
-  if (!claimEmail || !(await isAllowlisted(supabase, claimEmail))) {
-    await supabase.auth.signOut();
+  const { data } = await auth.getSession();
+  const claimEmail = sessionEmail(data?.user);
+  if (!claimEmail || !(await isAllowlisted(claimEmail))) {
+    await auth.signOut();
     return { ok: false, error: "這個帳戶沒有管理員權限。" };
   }
   redirect("/admin");

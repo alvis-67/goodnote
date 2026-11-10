@@ -34,9 +34,8 @@ yarn-error.log*
 .env*
 !.env.example
 
-# supabase local
-supabase/.temp/
-supabase/.branches/
+# local Neon link state (project ids). Secrets belong in .env.local, which is already ignored.
+.neon
 
 # vercel
 .vercel

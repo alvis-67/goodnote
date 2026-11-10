@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { ClientHeader } from "@/components/client-header";
 import { SetupRequired } from "@/components/setup-required";
 import { loadClientContext } from "@/lib/data";
-import { hasPublicEnv } from "@/lib/env-public";
+import { hasDatabaseEnv } from "@/lib/env";
 
 export default async function ClientLayout({
   children,
@@ -13,7 +13,7 @@ export default async function ClientLayout({
   params: Promise<{ token: string }>;
 }) {
   await connection();
-  if (!hasPublicEnv()) return <SetupRequired />;
+  if (!hasDatabaseEnv()) return <SetupRequired />;
   const { token } = await params;
   const context = await loadClientContext(token);
   if (!context) {

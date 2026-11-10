@@ -41,7 +41,7 @@ export function LoginForm({ initialError }: { initialError: string | null }) {
         <form onSubmit={verify} className="flex flex-col gap-4">
           <p className="text-sm leading-6 text-muted">
             已寄出登入電郵到 <span className="font-semibold text-ink">{email}</span>
-            。你可以按電郵內的連結，或輸入 6 位數字驗證碼。
+            。請輸入電郵內的 6 位數字驗證碼。若電郵同時附有登入連結，也可以直接按連結。
           </p>
           <label className="flex flex-col gap-2 text-sm font-semibold">
             驗證碼

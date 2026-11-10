@@ -2,26 +2,23 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-
-import type { Database } from "@/lib/database.types";
+import { sql, dbErrorCode } from "@/lib/db";
 import {
   displayFileName,
   isAllowedMime,
   MAX_FILE_BYTES,
   parseStoragePath,
   resolveFile,
-  STORAGE_BUCKET,
   buildStoragePath,
   type FileMeta,
 } from "@/lib/files";
-import { createSecretClient } from "@/lib/supabase/secret";
-
-type AppClient = SupabaseClient<Database>;
+import { createUploadUrl, deleteObject, inspectObject, signedDownloadUrl } from "@/lib/storage";
 
 export type PreparedUpload = {
   path: string;
-  token: string;
+  url: string;
+  method: "PUT";
+  headers: Record<string, string>;
   contentType: string;
   fileName: string;
 };
@@ -32,7 +29,6 @@ export async function prepareUploads(input: {
   messageId: string;
   files: FileMeta[];
 }): Promise<{ ok: true; uploads: PreparedUpload[] } | { ok: false; error: string }> {
-  const secret = createSecretClient();
   const uploads: PreparedUpload[] = [];
 
   for (const file of input.files) {
@@ -45,30 +41,31 @@ export async function prepareUploads(input: {
       attachmentId: randomUUID(),
       extension: resolved.extension,
     });
-    const { data, error } = await secret.storage.from(STORAGE_BUCKET).createSignedUploadUrl(path);
-    if (error || !data || data.path !== path) {
-      console.error("createSignedUploadUrl failed", error?.message);
+    try {
+      const url = await createUploadUrl(path, resolved.mime);
+      uploads.push({
+        path,
+        url,
+        method: "PUT",
+        headers: { "Content-Type": resolved.mime },
+        contentType: resolved.mime,
+        fileName: resolved.fileName,
+      });
+    } catch (error) {
+      console.error("createUploadUrl failed", error instanceof Error ? error.name : "error");
       return { ok: false, error: "未能準備檔案上載，請稍後再試。" };
     }
-    uploads.push({
-      path,
-      token: data.token,
-      contentType: resolved.mime,
-      fileName: resolved.fileName,
-    });
   }
 
   return { ok: true, uploads };
 }
 
 export async function finalizeUploads(input: {
-  supabase: AppClient;
   clientId: string;
   requestId: string;
   messageId: string;
   files: { path: string; fileName: string }[];
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const secret = createSecretClient();
   const seen = new Set<string>();
 
   for (const file of input.files) {
@@ -84,26 +81,33 @@ export async function finalizeUploads(input: {
       return { ok: false, error: "檔案路徑不正確。" };
     }
 
-    const { data, error } = await secret.storage.from(STORAGE_BUCKET).info(file.path);
-    if (error || !data) return { ok: false, error: "有檔案尚未完成上載。" };
-    const mime = data.contentType ?? "";
-    const size = data.size ?? 0;
-    if (!isAllowedMime(mime) || size <= 0 || size > MAX_FILE_BYTES) {
+    const info = await inspectObject(file.path);
+    if (!info) return { ok: false, error: "有檔案尚未完成上載。" };
+    if (!isAllowedMime(info.contentType) || info.size <= 0 || info.size > MAX_FILE_BYTES) {
+      await deleteObject(file.path).catch((error: unknown) => {
+        console.error("delete invalid object failed", error instanceof Error ? error.name : "error");
+      });
       return { ok: false, error: "上載的檔案不符合格式或大小限制。" };
     }
 
-    const { error: insertError } = await input.supabase.from("attachments").insert({
-      id: parts.attachmentId,
-      message_id: input.messageId,
-      request_id: input.requestId,
-      client_id: input.clientId,
-      storage_path: file.path,
-      file_name: displayFileName(file.fileName),
-      mime_type: mime,
-      size_bytes: size,
-    });
-    if (insertError && insertError.code !== "23505") {
-      console.error("attachment insert failed", insertError.code);
+    try {
+      await sql()`
+        insert into attachments (
+          id, message_id, request_id, client_id, storage_path, file_name, mime_type, size_bytes
+        ) values (
+          ${parts.attachmentId},
+          ${input.messageId},
+          ${input.requestId},
+          ${input.clientId},
+          ${file.path},
+          ${displayFileName(file.fileName)},
+          ${info.contentType},
+          ${info.size}
+        )
+        on conflict (storage_path) do nothing
+      `;
+    } catch (error) {
+      console.error("attachment insert failed", dbErrorCode(error));
       return { ok: false, error: "未能儲存檔案資料。" };
     }
   }
@@ -111,18 +115,22 @@ export async function finalizeUploads(input: {
   return { ok: true };
 }
 
-export async function signAttachmentPaths(paths: string[]): Promise<Map<string, string>> {
-  const unique = [...new Set(paths)];
+export async function signAttachmentPaths(
+  paths: string[],
+  scope?: { clientId: string },
+): Promise<Map<string, string>> {
   const signed = new Map<string, string>();
-  if (unique.length === 0) return signed;
-  const secret = createSecretClient();
-  const { data, error } = await secret.storage.from(STORAGE_BUCKET).createSignedUrls(unique, 60 * 60 * 2);
-  if (error || !data) {
-    console.error("createSignedUrls failed", error?.message);
-    return signed;
-  }
-  for (const item of data) {
-    if (item.path && item.signedUrl && !item.error) signed.set(item.path, item.signedUrl);
-  }
+  const unique = [...new Set(paths)].filter((path) => {
+    const parts = parseStoragePath(path);
+    if (!parts) return false;
+    if (scope && parts.clientId !== scope.clientId) return false;
+    return true;
+  });
+  await Promise.all(
+    unique.map(async (path) => {
+      const url = await signedDownloadUrl(path);
+      if (url) signed.set(path, url);
+    }),
+  );
   return signed;
 }

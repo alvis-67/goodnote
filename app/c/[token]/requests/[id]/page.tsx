@@ -7,8 +7,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Thread } from "@/components/thread";
 import { getClientRequest, loadClientThread } from "@/lib/data";
 import { topicLabel } from "@/lib/domain";
-import { hasPublicEnv } from "@/lib/env-public";
-import { hasSecretEnv } from "@/lib/supabase/secret";
+import { hasDatabaseEnv, hasStorageEnv } from "@/lib/env";
 import { formatDateTime } from "@/lib/format";
 import { signAttachmentPaths } from "@/lib/uploads";
 
@@ -20,12 +19,15 @@ export default async function ClientRequestPage({
   params: Promise<{ token: string; id: string }>;
 }) {
   const { token, id } = await params;
-  if (!hasPublicEnv()) return null;
+  if (!hasDatabaseEnv()) return null;
   const request = await getClientRequest(token, id);
   if (!request) notFound();
   const thread = await loadClientThread(token, id);
-  const urls = hasSecretEnv()
-    ? await signAttachmentPaths(thread.attachments.map((file) => file.storage_path))
+  const urls = hasStorageEnv()
+    ? await signAttachmentPaths(
+        thread.attachments.map((file) => file.storage_path),
+        { clientId: request.client_id },
+      )
     : new Map<string, string>();
 
   return (

@@ -4,13 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireAdmin } from "@/lib/auth";
-import { hasPublicEnv } from "@/lib/env-public";
-import { hasSecretEnv } from "@/lib/supabase/secret";
+import { getAuth } from "@/lib/auth/server";
 import { parseClientDraft } from "@/lib/clients";
-import { nextStatus } from "@/lib/domain";
+import { dbErrorCode, sql } from "@/lib/db";
+import { isStatusId, nextStatus } from "@/lib/domain";
+import { hasStorageEnv, isDeskReady } from "@/lib/env";
 import type { FileMeta } from "@/lib/files";
-import { generateAccessToken } from "@/lib/tokens";
-import { isUuid } from "@/lib/tokens";
+import { generateAccessToken, isUuid } from "@/lib/tokens";
 import { finalizeUploads, prepareUploads } from "@/lib/uploads";
 import { insertMessage, messageBody, normalizeFiles, type ActionFailure, type PrepareSuccess } from "@/lib/actions/shared";
 
@@ -18,7 +18,7 @@ export async function createClientAccount(
   _previous: ActionFailure | null,
   formData: FormData,
 ): Promise<ActionFailure | null> {
-  const { supabase } = await requireAdmin();
+  await requireAdmin();
   const parsed = parseClientDraft({
     companyName: String(formData.get("companyName") ?? ""),
     contactName: String(formData.get("contactName") ?? ""),
@@ -27,41 +27,53 @@ export async function createClientAccount(
   });
   if (!parsed.ok) return parsed;
 
-  const { data, error } = await supabase
-    .from("clients")
-    .insert({
-      company_name: parsed.value.companyName,
-      contact_name: parsed.value.contactName,
-      phone: parsed.value.phone,
-      notes: parsed.value.notes,
-      access_token: generateAccessToken(),
-    })
-    .select("id")
-    .single();
-  if (error || !data) {
-    console.error("client insert failed", error?.code);
+  try {
+    const rows = await sql()`
+      insert into clients (company_name, contact_name, phone, notes, access_token)
+      values (
+        ${parsed.value.companyName},
+        ${parsed.value.contactName},
+        ${parsed.value.phone},
+        ${parsed.value.notes},
+        ${generateAccessToken()}
+      )
+      returning id
+    `;
+    const id = rows[0]?.id;
+    if (!id) return { ok: false, error: "未能建立客戶。" };
+    revalidatePath("/admin/clients");
+    redirect(`/admin/clients?created=${String(id)}`);
+  } catch (error) {
+    if (isRedirect(error)) throw error;
+    console.error("client insert failed", dbErrorCode(error));
     return { ok: false, error: "未能建立客戶。" };
   }
-  revalidatePath("/admin/clients");
-  redirect(`/admin/clients?created=${data.id}`);
 }
 
 export async function advanceRequestStatus(formData: FormData): Promise<void> {
   const requestId = String(formData.get("requestId") ?? "");
   const back = `/admin/requests/${requestId}`;
   if (!isUuid(requestId)) redirect("/admin");
-  const { supabase } = await requireAdmin();
-  const { data: request, error } = await supabase
-    .from("requests")
-    .select("id, status")
-    .eq("id", requestId)
-    .maybeSingle();
-  if (error || !request) redirect("/admin");
-  const next = nextStatus(request.status);
+  await requireAdmin();
+  const rows = await sql()`
+    select id, status
+    from requests
+    where id = ${requestId}
+    limit 1
+  `;
+  const request = rows[0];
+  const status = String(request?.status ?? "");
+  if (!request || !isStatusId(status)) redirect("/admin");
+  const next = nextStatus(status);
   if (!next) redirect(`${back}?error=status`);
-  const { error: updateError } = await supabase.from("requests").update({ status: next }).eq("id", requestId);
-  if (updateError) {
-    console.error("status update failed", updateError.code);
+  try {
+    await sql()`
+      update requests
+      set status = ${next}
+      where id = ${requestId}
+    `;
+  } catch (error) {
+    console.error("status update failed", dbErrorCode(error));
     redirect(`${back}?error=status`);
   }
   revalidatePath(back);
@@ -75,8 +87,8 @@ export async function prepareAdminReply(input: {
   files: FileMeta[];
 }): Promise<PrepareSuccess | ActionFailure> {
   if (!isUuid(input.requestId)) return { ok: false, error: "找不到這個請求。" };
-  if (!hasPublicEnv() || !hasSecretEnv()) return { ok: false, error: "系統尚未完成設定。" };
-  const { supabase } = await requireAdmin();
+  if (!isDeskReady()) return { ok: false, error: "系統尚未完成設定。" };
+  await requireAdmin();
   const body = messageBody(input.body);
   if (!body.ok) return body;
   const files = normalizeFiles(input.files ?? []);
@@ -84,25 +96,28 @@ export async function prepareAdminReply(input: {
   if (!body.value && files.length === 0) {
     return { ok: false, error: "請填寫內容，或上載至少一個檔案。" };
   }
+  if (files.length > 0 && !hasStorageEnv()) return { ok: false, error: "系統尚未完成設定。" };
 
-  const { data: request, error } = await supabase
-    .from("requests")
-    .select("id, client_id")
-    .eq("id", input.requestId)
-    .maybeSingle();
-  if (error || !request) return { ok: false, error: "找不到這個請求。" };
+  const rows = await sql()`
+    select id, client_id
+    from requests
+    where id = ${input.requestId}
+    limit 1
+  `;
+  const request = rows[0];
+  if (!request) return { ok: false, error: "找不到這個請求。" };
 
-  const message = await insertMessage(supabase, {
-    requestId: request.id,
+  const message = await insertMessage({
+    requestId: String(request.id),
     authorRole: "admin",
     body: body.value,
   });
-  const redirectTo = `/admin/requests/${request.id}`;
+  const redirectTo = `/admin/requests/${String(request.id)}`;
   if (!message.ok) return message;
 
   const prepared = await prepareUploads({
-    clientId: request.client_id,
-    requestId: request.id,
+    clientId: String(request.client_id),
+    requestId: String(request.id),
     messageId: message.id,
     files,
   });
@@ -120,30 +135,33 @@ export async function finalizeAdminUploads(input: {
   if (!isUuid(input.requestId) || !isUuid(input.messageId)) {
     return { ok: false, error: "找不到這個請求。" };
   }
-  if (!hasPublicEnv() || !hasSecretEnv()) return { ok: false, error: "系統尚未完成設定。" };
-  const { supabase } = await requireAdmin();
-  const { data: request, error } = await supabase
-    .from("requests")
-    .select("id, client_id")
-    .eq("id", input.requestId)
-    .maybeSingle();
-  if (error || !request) return { ok: false, error: "找不到這個請求。" };
-  const { data: message } = await supabase
-    .from("messages")
-    .select("id, request_id")
-    .eq("id", input.messageId)
-    .maybeSingle();
-  if (!message || message.request_id !== request.id) {
+  if (!isDeskReady() || !hasStorageEnv()) return { ok: false, error: "系統尚未完成設定。" };
+  await requireAdmin();
+  const requests = await sql()`
+    select id, client_id
+    from requests
+    where id = ${input.requestId}
+    limit 1
+  `;
+  const request = requests[0];
+  if (!request) return { ok: false, error: "找不到這個請求。" };
+  const messages = await sql()`
+    select id, request_id
+    from messages
+    where id = ${input.messageId}
+    limit 1
+  `;
+  const message = messages[0];
+  if (!message || String(message.request_id) !== String(request.id)) {
     return { ok: false, error: "找不到這則訊息。" };
   }
   const saved = await finalizeUploads({
-    supabase,
-    clientId: request.client_id,
-    requestId: request.id,
+    clientId: String(request.client_id),
+    requestId: String(request.id),
     messageId: input.messageId,
     files: input.files ?? [],
   });
-  const redirectTo = `/admin/requests/${request.id}`;
+  const redirectTo = `/admin/requests/${String(request.id)}`;
   if (!saved.ok) return { ...saved, redirectTo };
   revalidatePath(redirectTo);
   return { ok: true, redirectTo };
@@ -151,18 +169,21 @@ export async function finalizeAdminUploads(input: {
 
 export async function markAdminRequestRead(requestId: string): Promise<void> {
   if (!isUuid(requestId)) return;
-  const { supabase } = await requireAdmin();
-  await supabase
-    .from("requests")
-    .update({
-      admin_unread: false,
-      admin_last_read_at: new Date().toISOString(),
-    })
-    .eq("id", requestId);
+  await requireAdmin();
+  await sql()`
+    update requests
+    set admin_unread = false,
+        admin_last_read_at = now()
+    where id = ${requestId}
+  `;
 }
 
 export async function signOutAdmin(): Promise<void> {
-  const { supabase } = await requireAdmin();
-  await supabase.auth.signOut();
+  await requireAdmin();
+  await getAuth().signOut();
   redirect("/admin/login");
+}
+
+function isRedirect(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "digest" in error && String((error as { digest?: unknown }).digest).startsWith("NEXT_REDIRECT"));
 }
