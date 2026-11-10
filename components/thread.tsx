@@ -1,7 +1,8 @@
-import { statusChangeText, isStatusId } from "@/lib/domain";
+import { statusChangeText, isStatusId, type TopicId } from "@/lib/domain";
 import type { MessageRow } from "@/lib/database.types";
 import type { ThreadAttachment } from "@/lib/data";
 import { formatBytes, formatDateTime } from "@/lib/format";
+import { isStageId, stageChangeText } from "@/lib/request-stage";
 
 const previewable = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
@@ -9,10 +10,12 @@ export function Thread({
   messages,
   attachments,
   urls,
+  topic,
 }: {
   messages: MessageRow[];
   attachments: ThreadAttachment[];
   urls: Map<string, string>;
+  topic?: TopicId;
 }) {
   if (messages.length === 0) {
     return <p className="text-sm text-muted">這條紀錄還沒有訊息。</p>;
@@ -27,6 +30,25 @@ export function Thread({
             <li key={message.id} className="flex justify-center">
               <p className="rounded-full bg-paper-deep px-3 py-1.5 text-center text-sm text-muted">
                 {statusChangeText(message.status_from, message.status_to)}
+                <span className="mx-1">·</span>
+                <time dateTime={message.created_at}>{formatDateTime(message.created_at)}</time>
+              </p>
+            </li>
+          );
+        }
+
+        if (message.kind === "stage_change") {
+          const stored = message.body?.trim() ?? "";
+          const computed =
+            topic && message.stage_from && message.stage_to && isStageId(message.stage_from) && isStageId(message.stage_to)
+              ? stageChangeText(topic, message.stage_from, message.stage_to)
+              : "";
+          const text = stored || computed;
+          if (!text) return null;
+          return (
+            <li key={message.id} className="flex justify-center">
+              <p className="rounded-full bg-paper-deep px-3 py-1.5 text-center text-sm text-muted">
+                {text}
                 <span className="mx-1">·</span>
                 <time dateTime={message.created_at}>{formatDateTime(message.created_at)}</time>
               </p>

@@ -9,7 +9,7 @@ import { ClientRequestList } from "../components/client-request-list";
 import { WorkLocation } from "../components/work-location";
 import { clientListHref, navigationAfterCreate, showNewRequest } from "./client-nav";
 import type { RequestRow } from "./database.types";
-import { clientFollowUpPath, clientHomePath, clientRequestPath } from "./paths";
+import { clientHomePath, clientRequestPath } from "./paths";
 import { displayWorkLocation, parseWorkLocation } from "./work-location";
 
 const requestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -21,6 +21,7 @@ function request(partial: Pick<RequestRow, "id" | "topic" | "work_location">): R
     id: partial.id,
     client_id: "11111111-1111-4111-8111-111111111111",
     topic: partial.topic,
+    stage: partial.topic,
     status: "pending",
     work_location: partial.work_location,
     parent_request_id: null,
@@ -41,14 +42,13 @@ test("after creating a request, the client can open 我的請求 without signing
   assert.equal(clientListHref(navigation.href), clientHomePath);
   assert.equal(showNewRequest(navigation.href), true);
   assert.equal(clientListHref("/client/new"), clientHomePath);
-  assert.equal(clientListHref(clientFollowUpPath(requestId)), clientHomePath);
-  assert.equal(showNewRequest(clientFollowUpPath(requestId)), true);
   assert.equal(clientListHref(clientHomePath), null);
   assert.equal(navigationAfterCreate("https://example.com/client/requests/" + requestId).href, clientHomePath);
 
   const html = renderToStaticMarkup(
     createElement(ClientRequestHeading, {
       topic: "quote",
+      stage: "quote",
       status: "pending",
       createdAt: "2026-11-10T02:00:00.000Z",
       location: "九龍灣地盤",

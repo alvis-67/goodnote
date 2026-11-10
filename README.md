@@ -7,10 +7,10 @@ The interface is Traditional Chinese (Hong Kong).
 ## What the first version does
 
 - A client signs in with a login name and password set by the admin, and sees only that company's requests. The login name does not have to be an email. Email on the client record is optional. After a new request is submitted, 「我的請求」 on that screen returns to the list. Signing in again is not required.
-- A new request has a topic (出報價單 / 出發票 / 出收據 / 其他), a work location (工作地點), text, and files, and starts at 待處理. Requests created before the location column still open.
-- From 出報價單 the client can open a linked 出發票, and from that 出發票 a linked 出收據. Each document stays its own request. The original topic, status, messages, and files stay as they are. The new request starts from a short form with the work location and the original client message filled in. If that earlier request had no text, the form can still be submitted. If that next document already exists, the page links to it instead of creating another. Requests with no parent still open.
-- After an admin updates an invoice's status, the invoice page prompts them that they can open a receipt for that client. The receipt form is filled with the same work location and content. If the receipt already exists, the page links to it.
-- The request page is a two-way thread. Status changes appear on the same timeline.
+- A new request has a topic (出報價單 / 出發票 / 出收據 / 其他), a work location (工作地點), text, and files, and starts at 待處理. Requests created before the location column still open. The topic is the document the request started as and does not change.
+- A quotation stays one request. Its title moves 出報價單, then 已出報價單，請出發票, then 發票，已收錢，請出收據. A request that starts as 出發票 can move to 發票，已收錢，請出收據. 出收據 and 其他 do not move on. The client or the admin advances it from the request page; there is no second form. Messages, files, and the work location stay on that request. Each step is written on the timeline, the status returns to 待處理, and the admin can still set 待處理, 處理中, 已出單, or 已入機 at every step. It cannot skip a step or move backward.
+- Requests already linked as a separate invoice or receipt stay in the list and can still be opened. New work does not create another linked request.
+- The request page is a two-way thread. Status changes and stage changes appear on the same timeline.
 - Only an allowlisted admin can sign in, see every request, reply, attach files, and set the status at any time to 待處理, 處理中, 已出單, or 已入機. The admin can delete a request from the desk. Deleting it removes the messages, attachments, and notifications as well. The admin can also delete a client from the clients page after a confirmation step. That ends the client's sessions immediately, and removes that client's requests, messages, and uploaded files. It cannot be undone. A client cannot delete an account.
 - New requests and later client messages are marked and sorted first on the admin desk.
 - The admin creates a client account and can later reset that client's password. Resetting a password ends that account's existing sessions.
@@ -52,9 +52,10 @@ psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0002_accounts.
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0003_request_status.sql
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0004_work_location.sql
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0005_document_chain.sql
+psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0006_request_stage.sql
 ```
 
-If `0001` through `0004_work_location` are already applied, run only `0005_document_chain.sql`.
+If `0001` through `0005_document_chain` are already applied, run only `0006_request_stage.sql`. The hosted database needs that file after this change is merged. Do not apply it from the app.
 
 3. Allow an admin, if that email is not already listed. The address must be lowercase:
 
@@ -104,7 +105,7 @@ Old `/c/{token}` URLs send the visitor to `/client/login`. They do not show that
    - `AWS_SECRET_ACCESS_KEY`
    - `AWS_ENDPOINT_URL_S3`
    - `AWS_REGION`
-3. Apply `db/migrations/0002_accounts.sql`, `db/migrations/0003_request_status.sql`, `db/migrations/0004_work_location.sql`, and `db/migrations/0005_document_chain.sql` with the direct connection if they are not applied yet. Do not apply them from the app.
+3. Apply `db/migrations/0002_accounts.sql`, `db/migrations/0003_request_status.sql`, `db/migrations/0004_work_location.sql`, `db/migrations/0005_document_chain.sql`, and `db/migrations/0006_request_stage.sql` with the direct connection if they are not applied yet. Do not apply them from the app. `0006_request_stage.sql` is required for the same-request stage titles.
 4. Set the first admin password with `scripts/set-admin-password.ts` against the hosted database, using `DATABASE_URL_UNPOOLED` and `ADMIN_EMAIL=alvis@alvis.hk`. Until that hash exists, the admin login will say the password has not been set.
 5. Run `scripts/configure-storage-cors.mjs` with `STORAGE_CORS_ORIGINS` set to the production origin (and preview origins, if uploads should work there).
 6. Deploy. File bytes upload from the browser to the private bucket with a short-lived presigned URL, so phone photos are not limited by the platform request-body size. Downloads use a separate signed URL that expires after two hours.
@@ -116,7 +117,7 @@ There is no emailed forgot-password flow. Password resets are done by someone wh
 - Clients are accounts. The server reads the session cookie, checks that the session is not revoked, and that `credential_at` still matches the client's `password_changed_at`. Every client query filters on that session's client id. Internal notes and password hashes are not selected for client pages.
 - Admins are rows in `admin_allowlist` with a password hash. The session stores the email. It does not trust a profile field as a permission. Public self-signup is closed.
 - Login names are unique. Email on a client is optional contact information and is not the client login.
-- The database role can read every row. Only server code holds `DATABASE_URL`. Status values, the timeline, attachment scope, and in-app notification rows are still enforced by triggers. An admin can move a request between any of the four statuses. Deleting the request cascades to its messages, attachments, and notifications, and keeps a later document that only pointed at it. Deleting a client cascades to that client's sessions, requests, messages, attachments, and notifications. No extra migration is required for client deletion.
+- The database role can read every row. Only server code holds `DATABASE_URL`. Status values, stage changes, the timeline, attachment scope, and in-app notification rows are still enforced by triggers. An admin can move a request between any of the four statuses at every stage. A stage only moves one step forward, on the same request. Deleting the request cascades to its messages, attachments, and notifications, and keeps a later document that only pointed at it. Deleting a client cascades to that client's sessions, requests, messages, attachments, and notifications. No extra migration is required for client deletion.
 - Object storage credentials stay on the server. The bucket is private. Upload URLs last 10 minutes and are limited to one object key. The server checks size (20MB) and MIME type again before it stores the attachment row. Deleting a request, or deleting the client who owns it, also deletes those objects from the bucket through the same request-file cleanup.
 - Session tokens are random. The database stores only an HMAC of the token, keyed with `SESSION_SECRET`. Password columns store scrypt hashes, never plaintext.
 
@@ -132,7 +133,7 @@ npm run test:schema
 npm run build
 ```
 
-`npm run test:schema` applies every file in [`db/migrations`](db/migrations) to a throwaway Postgres and checks status changes, deletion of a request and of a client, the timeline, notifications, attachment scope, login-name uniqueness, and that sessions have no expiry columns. It starts a temporary cluster when `DATABASE_URL` is unset. Do not point it at the hosted Neon project.
+`npm run test:schema` applies every file in [`db/migrations`](db/migrations) to a throwaway Postgres and checks status changes, stage changes, deletion of a request and of a client, the timeline, notifications, attachment scope, login-name uniqueness, and that sessions have no expiry columns. It starts a temporary cluster when `DATABASE_URL` is unset. Do not point it at the hosted Neon project.
 
 ## Later notifications
 

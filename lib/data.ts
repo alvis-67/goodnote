@@ -6,9 +6,10 @@ import { clientCanAccess } from "@/lib/auth/access";
 import { currentClient, requireAdmin } from "@/lib/auth";
 import type { ClientRow, InboxRow, MessageRow, RequestRow } from "@/lib/database.types";
 import { sql } from "@/lib/db";
-import { openingClientContent, type ChainLink } from "@/lib/document-chain";
+import type { ChainLink } from "@/lib/document-chain";
 import type { StatusId, TopicId } from "@/lib/domain";
 import { isStatusId, isTopicId } from "@/lib/domain";
+import { isLegalStage, isStageId } from "@/lib/request-stage";
 import { hasDatabaseEnv, isDeskReady } from "@/lib/env";
 import { asBool, asIso, asText } from "@/lib/rows";
 import { isUuid } from "@/lib/tokens";
@@ -50,12 +51,14 @@ function linkFrom(id: unknown, topic: unknown): ChainLink | null {
 
 function requestFrom(row: Record<string, unknown>): RequestRow | null {
   const topic = String(row.topic ?? "");
+  const stage = String(row.stage ?? "");
   const status = String(row.status ?? "");
-  if (!isTopicId(topic) || !isStatusId(status)) return null;
+  if (!isTopicId(topic) || !isStageId(stage) || !isLegalStage(topic, stage) || !isStatusId(status)) return null;
   return {
     id: String(row.id),
     client_id: String(row.client_id),
     topic,
+    stage,
     status,
     work_location: displayWorkLocation(asText(row.work_location)),
     parent_request_id: uuidOrNull(row.parent_request_id),
@@ -73,9 +76,11 @@ function messageFrom(row: Record<string, unknown>): MessageRow | null {
   const author = String(row.author_role ?? "");
   const kind = String(row.kind ?? "");
   if (author !== "client" && author !== "admin" && author !== "system") return null;
-  if (kind !== "message" && kind !== "status_change") return null;
+  if (kind !== "message" && kind !== "status_change" && kind !== "stage_change") return null;
   const statusFrom = asText(row.status_from);
   const statusTo = asText(row.status_to);
+  const stageFrom = asText(row.stage_from);
+  const stageTo = asText(row.stage_to);
   return {
     id: String(row.id),
     request_id: String(row.request_id),
@@ -84,6 +89,8 @@ function messageFrom(row: Record<string, unknown>): MessageRow | null {
     body: asText(row.body),
     status_from: statusFrom && isStatusId(statusFrom) ? statusFrom : null,
     status_to: statusTo && isStatusId(statusTo) ? statusTo : null,
+    stage_from: stageFrom && isStageId(stageFrom) ? stageFrom : null,
+    stage_to: stageTo && isStageId(stageTo) ? stageTo : null,
     created_at: asIso(row.created_at),
   };
 }
@@ -106,7 +113,7 @@ export async function listClientRequests(): Promise<RequestListItem[]> {
   const client = await currentClient();
   if (!hasDatabaseEnv() || !client) return [];
   const rows = await sql()`
-    select r.id, r.client_id, r.topic, r.status, r.work_location, r.parent_request_id,
+    select r.id, r.client_id, r.topic, r.stage, r.status, r.work_location, r.parent_request_id,
            r.created_at, r.updated_at, r.last_activity_at,
            r.admin_unread, r.admin_last_read_at, r.client_unread, r.client_last_read_at,
            parent.topic as parent_topic,
@@ -140,7 +147,7 @@ export async function getClientRequest(requestId: string): Promise<RequestRow | 
   const client = await currentClient();
   if (!hasDatabaseEnv() || !client || !isUuid(requestId)) return null;
   const rows = await sql()`
-    select id, client_id, topic, status, work_location, parent_request_id, created_at, updated_at, last_activity_at,
+    select id, client_id, topic, stage, status, work_location, parent_request_id, created_at, updated_at, last_activity_at,
            admin_unread, admin_last_read_at, client_unread, client_last_read_at
     from requests
     where id = ${requestId}
@@ -193,44 +200,6 @@ export async function loadAdminRequestChain(requestId: string): Promise<RequestC
   return loadChain(requestId, null);
 }
 
-export async function loadClientOpeningContent(requestId: string): Promise<string> {
-  const context = await loadClientContext();
-  if (!context || !isUuid(requestId)) return "";
-  return readOpeningClientContent(requestId, context.client.id);
-}
-
-export async function loadAdminOpeningContent(requestId: string): Promise<string> {
-  await requireAdmin();
-  if (!isUuid(requestId)) return "";
-  return readOpeningClientContent(requestId, null);
-}
-
-async function readOpeningClientContent(requestId: string, clientId: string | null): Promise<string> {
-  const rows = await sql()`
-    select m.id, m.body, m.created_at
-    from messages m
-    join requests r on r.id = m.request_id
-    where m.request_id = ${requestId}
-      and m.kind = 'message'
-      and m.author_role = 'client'
-      and nullif(btrim(m.body), '') is not null
-      and (${clientId}::uuid is null or r.client_id = ${clientId})
-    order by m.created_at asc, m.id asc
-    limit 1
-  `;
-  const row = rows[0];
-  if (!row) return "";
-  return openingClientContent([
-    {
-      id: String(row.id),
-      authorRole: "client",
-      kind: "message",
-      body: asText(row.body),
-      createdAt: asIso(row.created_at),
-    },
-  ]);
-}
-
 export type ThreadAttachment = {
   id: string;
   message_id: string;
@@ -246,14 +215,14 @@ async function loadThreadFor(requestId: string, clientId: string | null): Promis
 }> {
   const messages = clientId
     ? await sql()`
-        select id, request_id, author_role, kind, body, status_from, status_to, created_at
+        select id, request_id, author_role, kind, body, status_from, status_to, stage_from, stage_to, created_at
         from messages
         where request_id = ${requestId}
           and request_id in (select id from requests where client_id = ${clientId})
         order by created_at asc
       `
     : await sql()`
-        select id, request_id, author_role, kind, body, status_from, status_to, created_at
+        select id, request_id, author_role, kind, body, status_from, status_to, stage_from, stage_to, created_at
         from messages
         where request_id = ${requestId}
         order by created_at asc
@@ -330,7 +299,7 @@ export async function loadAdminInbox(filters: InboxFilters): Promise<{
   const clientId = filters.clientId ?? null;
   const [inbox, clients, unread] = await Promise.all([
     sql()`
-      select id, client_id, topic, status, work_location, parent_request_id,
+      select id, client_id, topic, stage, status, work_location, parent_request_id,
              created_at, updated_at, last_activity_at,
              admin_unread, admin_last_read_at, client_unread, client_last_read_at,
              company_name, contact_name, latest_body,
@@ -370,7 +339,7 @@ export async function getAdminRequest(requestId: string): Promise<{
   if (!isDeskReady() || !isUuid(requestId)) return null;
   await requireAdmin();
   const requests = await sql()`
-    select id, client_id, topic, status, work_location, parent_request_id, created_at, updated_at, last_activity_at,
+    select id, client_id, topic, stage, status, work_location, parent_request_id, created_at, updated_at, last_activity_at,
            admin_unread, admin_last_read_at, client_unread, client_last_read_at
     from requests
     where id = ${requestId}

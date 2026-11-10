@@ -541,6 +541,7 @@ values (
 
 select pg_temp.expect(
   (select topic = 'quote'
+      and stage = 'quote'
       and status = 'pending'
       and work_location = '九龍灣地盤'
       and parent_request_id is null
@@ -555,6 +556,7 @@ select pg_temp.expect(
 );
 select pg_temp.expect(
   (select topic = 'invoice'
+      and stage = 'invoice'
       and parent_request_id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
       and work_location = '九龍灣地盤'
    from public.requests
@@ -756,6 +758,395 @@ select pg_temp.expect(
    from public.requests
    where id = '0a0a0a0a-0a0a-40a0-80a0-0a0a0a0a0a0a'),
   'deleting a quotation keeps the invoice and its message'
+);
+
+insert into public.requests (id, client_id, topic, work_location)
+values (
+  '10101010-1010-4010-8010-101010101010',
+  '11111111-1111-4111-8111-111111111111',
+  'quote',
+  '九龍灣地盤'
+);
+
+insert into public.messages (id, request_id, author_role, kind, body)
+values (
+  '12121212-1212-4121-8121-121212121212',
+  '10101010-1010-4010-8010-101010101010',
+  'client',
+  'message',
+  '請報價泥水工程'
+);
+
+insert into public.attachments (
+  message_id, request_id, client_id, storage_path, file_name, mime_type, size_bytes
+) values (
+  '12121212-1212-4121-8121-121212121212',
+  '10101010-1010-4010-8010-101010101010',
+  '11111111-1111-4111-8111-111111111111',
+  '11111111-1111-4111-8111-111111111111/10101010-1010-4010-8010-101010101010/12121212-1212-4121-8121-121212121212/quote.pdf',
+  '報價.pdf',
+  'application/pdf',
+  1200
+);
+
+update public.requests
+set status = 'issued',
+    admin_unread = false
+where id = '10101010-1010-4010-8010-101010101010';
+
+do $$
+declare
+  requests_before int;
+begin
+  select count(*) into requests_before from public.requests;
+  update public.requests
+  set stage = 'invoice'
+  where id = '10101010-1010-4010-8010-101010101010'
+    and stage = 'quote';
+  if (select count(*) from public.requests) <> requests_before then
+    raise exception 'FAIL: advancing a quotation created another request';
+  end if;
+end $$;
+
+select pg_temp.expect(
+  (select id = '10101010-1010-4010-8010-101010101010'
+      and topic = 'quote'
+      and stage = 'invoice'
+      and status = 'pending'
+      and work_location = '九龍灣地盤'
+      and admin_unread
+      and parent_request_id is null
+      and (
+        select count(*)
+        from public.requests child
+        where child.parent_request_id = '10101010-1010-4010-8010-101010101010'
+      ) = 0
+      and (
+        select body
+        from public.messages
+        where id = '12121212-1212-4121-8121-121212121212'
+      ) = '請報價泥水工程'
+      and (
+        select count(*)
+        from public.attachments
+        where request_id = '10101010-1010-4010-8010-101010101010'
+          and file_name = '報價.pdf'
+      ) = 1
+   from public.requests
+   where id = '10101010-1010-4010-8010-101010101010'),
+  'advancing a quotation keeps the same request, files, and work location'
+);
+
+select pg_temp.expect(
+  (select body = '階段由出報價單改為已出報價單，請出發票'
+      and stage_from = 'quote'
+      and stage_to = 'invoice'
+   from public.messages
+   where request_id = '10101010-1010-4010-8010-101010101010'
+     and kind = 'stage_change'),
+  'the quotation stage change is written on that request timeline'
+);
+
+select pg_temp.expect(
+  (select count(*) = 1
+   from public.messages
+   where request_id = '10101010-1010-4010-8010-101010101010'
+     and kind = 'status_change'
+     and status_from = 'issued'
+     and status_to = 'pending'),
+  'advancing a quotation returns its status to pending'
+);
+
+select pg_temp.expect(
+  (select event_type = 'stage_changed' and recipient_role = 'admin'
+   from public.notification_events
+   where request_id = '10101010-1010-4010-8010-101010101010'
+     and event_type = 'stage_changed'),
+  'a stage change tells the admin there is new work'
+);
+
+select pg_temp.expect(
+  (select topic = 'quote' and stage = 'invoice' and status = 'pending'
+   from public.request_inbox
+   where id = '10101010-1010-4010-8010-101010101010'),
+  'the admin desk shows the same quotation row at the invoice stage'
+);
+
+do $$
+declare
+  stage_message uuid;
+begin
+  select id into stage_message
+  from public.messages
+  where request_id = '10101010-1010-4010-8010-101010101010'
+    and kind = 'stage_change'
+  limit 1;
+
+  insert into public.attachments (
+    message_id, request_id, client_id, storage_path, file_name, mime_type, size_bytes
+  ) values (
+    stage_message,
+    '10101010-1010-4010-8010-101010101010',
+    '11111111-1111-4111-8111-111111111111',
+    '11111111-1111-4111-8111-111111111111/10101010-1010-4010-8010-101010101010/stage.pdf',
+    '階段.pdf',
+    'application/pdf',
+    1200
+  );
+  raise exception 'FAIL: file attached to a stage event';
+exception
+  when insufficient_privilege then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+update public.requests
+set status = 'recorded'
+where id = '10101010-1010-4010-8010-101010101010';
+
+update public.requests
+set stage = 'receipt',
+    status = 'issued'
+where id = '10101010-1010-4010-8010-101010101010'
+  and stage = 'invoice';
+
+select pg_temp.expect(
+  (select topic = 'quote'
+      and stage = 'receipt'
+      and status = 'pending'
+      and (
+        select body
+        from public.messages
+        where request_id = '10101010-1010-4010-8010-101010101010'
+          and kind = 'stage_change'
+          and stage_from = 'invoice'
+          and stage_to = 'receipt'
+      ) = '階段由已出報價單，請出發票改為發票，已收錢，請出收據'
+   from public.requests
+   where id = '10101010-1010-4010-8010-101010101010'),
+  'a quotation can then ask for a receipt without skipping or keeping the old status'
+);
+
+do $$
+begin
+  update public.requests
+  set stage = 'invoice'
+  where id = '10101010-1010-4010-8010-101010101010';
+  raise exception 'FAIL: receipt stage moved backward';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+update public.requests
+set status = 'in_progress'
+where id = '10101010-1010-4010-8010-101010101010';
+
+update public.requests
+set status = 'issued'
+where id = '10101010-1010-4010-8010-101010101010';
+
+select pg_temp.expect(
+  (select stage = 'receipt' and status = 'issued'
+   from public.requests
+   where id = '10101010-1010-4010-8010-101010101010'),
+  'the four statuses still work after the request reaches the receipt stage'
+);
+
+insert into public.requests (id, client_id, topic, work_location)
+values (
+  '50505050-5050-4050-8050-505050505050',
+  '11111111-1111-4111-8111-111111111111',
+  'quote',
+  '觀塘地盤'
+);
+
+do $$
+begin
+  update public.requests
+  set stage = 'receipt'
+  where id = '50505050-5050-4050-8050-505050505050';
+  raise exception 'FAIL: quotation skipped the invoice stage';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+select pg_temp.expect(
+  (select stage = 'quote'
+   from public.requests
+   where id = '50505050-5050-4050-8050-505050505050'),
+  'a skipped stage does not stick'
+);
+
+insert into public.requests (id, client_id, topic)
+values (
+  '20202020-2020-4020-8020-202020202020',
+  '11111111-1111-4111-8111-111111111111',
+  'invoice'
+);
+
+do $$
+declare
+  changes_before int;
+  changes_after int;
+begin
+  select count(*) into changes_before
+  from public.messages
+  where request_id = '20202020-2020-4020-8020-202020202020'
+    and kind = 'status_change';
+
+  update public.requests
+  set stage = 'receipt'
+  where id = '20202020-2020-4020-8020-202020202020'
+    and stage = 'invoice';
+
+  select count(*) into changes_after
+  from public.messages
+  where request_id = '20202020-2020-4020-8020-202020202020'
+    and kind = 'status_change';
+
+  if changes_after <> changes_before then
+    raise exception 'FAIL: advancing an already pending invoice wrote a status row';
+  end if;
+end $$;
+
+select pg_temp.expect(
+  (select topic = 'invoice'
+      and stage = 'receipt'
+      and status = 'pending'
+      and (
+        select body
+        from public.messages
+        where request_id = '20202020-2020-4020-8020-202020202020'
+          and kind = 'stage_change'
+      ) = '階段由出發票改為發票，已收錢，請出收據'
+   from public.requests
+   where id = '20202020-2020-4020-8020-202020202020'),
+  'an invoice request advances to the receipt stage on the same row'
+);
+
+insert into public.requests (id, client_id, topic)
+values (
+  '30303030-3030-4030-8030-303030303030',
+  '11111111-1111-4111-8111-111111111111',
+  'receipt'
+);
+
+insert into public.requests (id, client_id, topic)
+values (
+  '40404040-4040-4040-8040-404040404040',
+  '11111111-1111-4111-8111-111111111111',
+  'other'
+);
+
+do $$
+begin
+  update public.requests
+  set stage = 'invoice'
+  where id = '30303030-3030-4030-8030-303030303030';
+  raise exception 'FAIL: a receipt request advanced';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  update public.requests
+  set stage = 'invoice'
+  where id = '40404040-4040-4040-8040-404040404040';
+  raise exception 'FAIL: an other request advanced';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+select pg_temp.expect(
+  (select stage = 'receipt'
+   from public.requests
+   where id = '30303030-3030-4030-8030-303030303030'),
+  'a receipt request stays a receipt'
+);
+select pg_temp.expect(
+  (select stage = 'other'
+   from public.requests
+   where id = '40404040-4040-4040-8040-404040404040'),
+  'an other request stays other'
+);
+
+do $$
+begin
+  insert into public.requests (client_id, topic, stage)
+  values (
+    '11111111-1111-4111-8111-111111111111',
+    'quote',
+    'receipt'
+  );
+  raise exception 'FAIL: a new quotation started at the receipt stage';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+declare
+  children_before int;
+begin
+  select count(*) into children_before
+  from public.requests
+  where parent_request_id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+  update public.requests
+  set stage = 'invoice'
+  where id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    and stage = 'quote';
+
+  if (
+    select count(*)
+    from public.requests
+    where parent_request_id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  ) <> children_before then
+    raise exception 'FAIL: moving an old quotation changed its linked child';
+  end if;
+end $$;
+
+select pg_temp.expect(
+  (select stage = 'invoice'
+      and topic = 'quote'
+   from public.requests
+   where id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')
+  and (
+    select topic = 'invoice'
+        and stage = 'invoice'
+        and parent_request_id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    from public.requests
+    where id = 'c0c0c0c0-c0c0-40c0-80c0-c0c0c0c0c0c0'
+  ),
+  'an old linked invoice stays a separate request when its quotation moves stage'
 );
 
 insert into public.requests (id, client_id, topic, work_location)
