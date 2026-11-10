@@ -7,12 +7,10 @@ import { Composer } from "@/components/composer";
 import { MarkAdminRead } from "@/components/mark-read";
 import { StatusBadge } from "@/components/status-badge";
 import { Thread } from "@/components/thread";
-import { getAdminRequest, loadThread } from "@/lib/data";
+import { getAdminRequest, loadAdminThread } from "@/lib/data";
 import { advanceLabel, nextStatus, topicLabel } from "@/lib/domain";
 import { formatDateTime } from "@/lib/format";
-import { hasPublicEnv } from "@/lib/env-public";
-import { hasSecretEnv } from "@/lib/supabase/secret";
-import { createClient } from "@/lib/supabase/server";
+import { hasStorageEnv, isDeskReady } from "@/lib/env";
 import { signAttachmentPaths } from "@/lib/uploads";
 
 export const metadata: Metadata = { title: "請求" };
@@ -26,13 +24,12 @@ export default async function AdminRequestPage({
 }) {
   const { id } = await params;
   const query = await searchParams;
-  if (!hasPublicEnv()) return null;
+  if (!isDeskReady()) return null;
   const loaded = await getAdminRequest(id);
   if (!loaded) notFound();
   const { request, client } = loaded;
-  const supabase = await createClient();
-  const thread = await loadThread(supabase, request.id);
-  const urls = hasSecretEnv()
+  const thread = await loadAdminThread(request.id);
+  const urls = hasStorageEnv()
     ? await signAttachmentPaths(thread.attachments.map((file) => file.storage_path))
     : new Map<string, string>();
   const next = nextStatus(request.status);

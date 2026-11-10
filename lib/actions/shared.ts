@@ -1,8 +1,6 @@
 import "server-only";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-
-import type { Database } from "@/lib/database.types";
+import { dbErrorCode, sql } from "@/lib/db";
 import { MAX_BODY_LENGTH, MAX_FILES, validateFiles, type FileMeta } from "@/lib/files";
 import { parseMessageBody } from "@/lib/clients";
 import { isUuid } from "@/lib/tokens";
@@ -10,7 +8,9 @@ import { isUuid } from "@/lib/tokens";
 export type ActionFailure = { ok: false; error: string; redirectTo?: string };
 export type UploadTicket = {
   path: string;
-  token: string;
+  url: string;
+  method: "PUT";
+  headers: Record<string, string>;
   contentType: string;
   fileName: string;
 };
@@ -19,8 +19,6 @@ export type PrepareSuccess = {
   redirectTo: string;
   uploads: UploadTicket[];
 };
-
-type AppClient = SupabaseClient<Database>;
 
 export function normalizeFiles(files: FileMeta[]): FileMeta[] | ActionFailure {
   if (!Array.isArray(files) || files.length > MAX_FILES) {
@@ -43,24 +41,28 @@ export function messageBody(body: string): { ok: true; value: string } | ActionF
   return parseMessageBody(body);
 }
 
-export async function insertMessage(
-  supabase: AppClient,
-  input: { requestId: string; authorRole: "client" | "admin"; body: string },
-): Promise<{ ok: true; id: string } | ActionFailure> {
+export async function insertMessage(input: {
+  requestId: string;
+  authorRole: "client" | "admin";
+  body: string;
+}): Promise<{ ok: true; id: string } | ActionFailure> {
   if (!isUuid(input.requestId)) return { ok: false, error: "找不到這個請求。" };
-  const { data, error } = await supabase
-    .from("messages")
-    .insert({
-      request_id: input.requestId,
-      author_role: input.authorRole,
-      kind: "message",
-      body: input.body.length > 0 ? input.body : null,
-    })
-    .select("id")
-    .single();
-  if (error || !data) {
-    console.error("message insert failed", error?.code);
+  try {
+    const rows = await sql()`
+      insert into messages (request_id, author_role, kind, body)
+      values (
+        ${input.requestId},
+        ${input.authorRole},
+        'message',
+        ${input.body.length > 0 ? input.body : null}
+      )
+      returning id
+    `;
+    const id = rows[0]?.id;
+    if (!id) return { ok: false, error: "未能送出訊息。" };
+    return { ok: true, id: String(id) };
+  } catch (error) {
+    console.error("message insert failed", dbErrorCode(error));
     return { ok: false, error: "未能送出訊息。" };
   }
-  return { ok: true, id: data.id };
 }

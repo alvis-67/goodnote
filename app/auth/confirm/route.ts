@@ -1,36 +1,21 @@
 import { NextResponse } from "next/server";
 
-import { emailFromClaims, isAllowlisted } from "@/lib/auth";
-import { hasPublicEnv } from "@/lib/env-public";
-import { createClient } from "@/lib/supabase/server";
+import { isAllowlisted, sessionEmail } from "@/lib/auth";
+import { getAuth } from "@/lib/auth/server";
+import { isDeskReady } from "@/lib/env";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  if (!hasPublicEnv()) {
+  if (!isDeskReady()) {
     return NextResponse.redirect(new URL("/admin/login?error=config", url.origin));
   }
 
-  const code = url.searchParams.get("code");
-  const tokenHash = url.searchParams.get("token_hash");
-  const type = url.searchParams.get("type");
-  const supabase = await createClient();
-  let failed = true;
-
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    failed = Boolean(error);
-  } else if (tokenHash && type === "email") {
-    const { error } = await supabase.auth.verifyOtp({ type: "email", token_hash: tokenHash });
-    failed = Boolean(error);
-  }
-
-  if (failed) return NextResponse.redirect(new URL("/admin/login?error=link", url.origin));
-
-  const { data } = await supabase.auth.getClaims();
-  const email = emailFromClaims(data?.claims);
-  if (!email || !(await isAllowlisted(supabase, email))) {
-    await supabase.auth.signOut();
-    return NextResponse.redirect(new URL("/admin/login?error=forbidden", url.origin));
+  const auth = getAuth();
+  const { data, error } = await auth.getSession();
+  const email = error ? null : sessionEmail(data?.user);
+  if (!email || !(await isAllowlisted(email))) {
+    await auth.signOut();
+    return NextResponse.redirect(new URL("/admin/login?error=link", url.origin));
   }
 
   const next = safeNext(url.searchParams.get("next"));

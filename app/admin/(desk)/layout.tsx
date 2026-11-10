@@ -4,11 +4,11 @@ import { AdminHeader } from "@/components/admin-header";
 import { SetupRequired } from "@/components/setup-required";
 import { requireAdmin } from "@/lib/auth";
 import { countAdminUnread } from "@/lib/data";
-import { hasPublicEnv } from "@/lib/env-public";
+import { isDeskReady } from "@/lib/env";
 
 export default async function DeskLayout({ children }: { children: React.ReactNode }) {
   await connection();
-  if (!hasPublicEnv()) return <SetupRequired />;
+  if (!isDeskReady()) return <SetupRequired />;
   const { email } = await requireAdmin();
   const unread = await countAdminUnread();
   return (

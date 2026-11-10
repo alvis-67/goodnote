@@ -11,12 +11,15 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test lib/*.test.ts",
-    "test:rls": "bash scripts/test-rls.sh"
+    "test": "node --import tsx --test lib/*.test.ts lib/auth/*.test.ts",
+    "test:schema": "bash scripts/test-schema.sh"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.12.7",
-    "@supabase/supabase-js": "^2.119.0",
+    "@aws-sdk/client-s3": "^3.1165.0",
+    "@aws-sdk/s3-request-presigner": "^3.1165.0",
+    "@neon/auth": "^0.8.2",
+    "@neon/config": "^1.14.0",
+    "@neondatabase/serverless": "^1.2.0",
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",

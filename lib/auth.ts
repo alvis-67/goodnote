@@ -1,40 +1,41 @@
 import "server-only";
 
+import { cache } from "react";
 import { redirect } from "next/navigation";
 
-import type { Database } from "@/lib/database.types";
-import { createClient } from "@/lib/supabase/server";
+import { normalizeEmail } from "@/lib/auth/email";
+import { getAuth } from "@/lib/auth/server";
+import { sql } from "@/lib/db";
+import { hasAuthEnv } from "@/lib/env";
 
-type AppClient = Awaited<ReturnType<typeof createClient>>;
+type SessionUser = { email?: string | null } | null | undefined;
 
-export function emailFromClaims(claims: { email?: string } | null | undefined): string | null {
-  const email = claims?.email?.trim().toLowerCase();
-  return email ? email : null;
+export const isAllowlisted = cache(async (email: string): Promise<boolean> => {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return false;
+  const rows = await sql()`
+    select email
+    from admin_allowlist
+    where email = ${normalized}
+    limit 1
+  `;
+  return rows.length > 0;
+});
+
+export function sessionEmail(user: SessionUser): string | null {
+  return normalizeEmail(user?.email ?? null);
 }
 
-export async function currentAdminEmail(supabase: AppClient): Promise<string | null> {
-  const { data, error } = await supabase.auth.getClaims();
-  if (error || !data) return null;
-  return emailFromClaims(data.claims);
+export async function currentAdminEmail(): Promise<string | null> {
+  if (!hasAuthEnv()) return null;
+  const { data, error } = await getAuth().getSession();
+  if (error || !data?.user) return null;
+  return sessionEmail(data.user);
 }
 
-export async function isAllowlisted(supabase: AppClient, email: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("admin_allowlist")
-    .select("email")
-    .eq("email", email)
-    .maybeSingle();
-  if (error || !data) return false;
-  return true;
-}
-
-export async function requireAdmin(): Promise<{ supabase: AppClient; email: string }> {
-  const supabase = await createClient();
-  const email = await currentAdminEmail(supabase);
+export const requireAdmin = cache(async (): Promise<{ email: string }> => {
+  const email = await currentAdminEmail();
   if (!email) redirect("/admin/login");
-  const allowed = await isAllowlisted(supabase, email);
-  if (!allowed) redirect("/auth/reject");
-  return { supabase, email };
-}
-
-export type { Database };
+  if (!(await isAllowlisted(email))) redirect("/auth/reject");
+  return { email };
+});

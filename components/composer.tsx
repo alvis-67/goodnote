@@ -7,8 +7,7 @@ import { finalizeAdminUploads, prepareAdminReply } from "@/lib/actions/admin";
 import { finalizeClientUploads, prepareClientReply, prepareClientRequest } from "@/lib/actions/client";
 import { TOPICS, type TopicId } from "@/lib/domain";
 import { formatBytes } from "@/lib/format";
-import { acceptAttribute, MAX_FILES, STORAGE_BUCKET, validateFiles, type FileMeta } from "@/lib/files";
-import { createBrowserSupabase } from "@/lib/supabase/browser";
+import { acceptAttribute, MAX_FILES, validateFiles, type FileMeta } from "@/lib/files";
 
 type Audience = "client" | "admin";
 
@@ -79,7 +78,6 @@ export function Composer({
     let failed = false;
     if (prepared.uploads.length > 0) {
       try {
-        const supabase = createBrowserSupabase();
         for (let index = 0; index < prepared.uploads.length; index += 1) {
           const ticket = prepared.uploads[index];
           const file = files[index];
@@ -88,10 +86,12 @@ export function Composer({
             break;
           }
           setProgress(`正在上載 ${index + 1} / ${prepared.uploads.length}`);
-          const { error: uploadError } = await supabase.storage
-            .from(STORAGE_BUCKET)
-            .uploadToSignedUrl(ticket.path, ticket.token, file, { contentType: ticket.contentType });
-          if (uploadError) {
+          const response = await fetch(ticket.url, {
+            method: ticket.method,
+            headers: ticket.headers,
+            body: file,
+          });
+          if (!response.ok) {
             failed = true;
             break;
           }

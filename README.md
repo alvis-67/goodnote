@@ -16,56 +16,102 @@ The interface is Traditional Chinese (Hong Kong).
 
 ## Stack
 
-- Next.js (App Router) and TypeScript
-- Supabase Postgres, Auth, and private Storage
-- Row Level Security for both the admin session and the client token
+- Next.js (App Router) and TypeScript, intended for Vercel
+- Neon Postgres, queried from server code with `@neondatabase/serverless`
+- Neon Managed Better Auth (`@neon/auth`) for admin email OTP and magic link
+- Private Neon Object Storage bucket `request-files` for attachments
+
+The browser never talks to Postgres. Client pages are authorized by the unguessable `/c/{token}` link. Admin pages require a session whose email is in `admin_allowlist`.
+
+## Existing Neon project
+
+Use the project that is already created. Do not create another one.
+
+- Name: goodnote
+- Project id: `shiny-heart-58021805`
+- Default branch: main (`br-tiny-sky-aouhyj4x`)
+- Region: `aws-ap-southeast-1`
+- Auth base URL: `https://ep-spring-credit-aoilfu24.neonauth.c-2.ap-southeast-1.aws.neon.tech/neondb/auth`
+- Auth schema: `neon_auth` (leave it alone; this repo does not migrate it)
+- Private bucket: `request-files` (already created; do not make it public)
+
+`neon.ts` declares `auth: true` and that private bucket. It does not enable the Data API or the AI Gateway. Auth and the bucket are already on the branch, so you do not need to run `neon deploy` to start. If you do run it later, review `neon config plan` first: deploy reconciles the branch and writes secrets into a local env file. Do not commit that file.
 
 ## Local setup
 
-1. Create a Supabase project.
-2. In the SQL editor, run [`supabase/migrations/20261110160000_init.sql`](supabase/migrations/20261110160000_init.sql). This creates the tables, indexes, RLS policies, the private `request-files` bucket, and the signup guard. You can instead install the [Supabase CLI](https://supabase.com/docs/guides/cli), run `supabase link`, and `supabase db push`.
-3. Copy `.env.example` to `.env.local` and fill in the project URL, publishable key, and secret key from **Project Settings → API Keys**. Do not commit `.env.local`.
-4. Add the first admin, in this order:
-   - SQL editor: `insert into public.admin_allowlist (email) values ('you@example.com');`
-   - **Authentication → Users → Add user**, with that same email, and mark the email confirmed. Auto-confirm it so the first login does not wait on a second email.
-5. In **Authentication → Providers → Email**, keep email auth enabled. Turn **Allow new users to sign up** off. The migration also adds a trigger that rejects `auth.users` inserts whose email is not on the allowlist. If that trigger could not be created, the dashboard warning and the app checks still apply: `shouldCreateUser` is false, and RLS only treats allowlisted emails as admins.
-6. In **Authentication → URL configuration**, set Site URL to `http://localhost:3000` for local work. Add `http://localhost:3000/auth/confirm` to the redirect allow list.
-7. Optional, for a 6-digit code as well as the link: open **Authentication → Email templates → Magic Link** and paste [`supabase/templates/magic_link.html`](supabase/templates/magic_link.html). The default template already sends a link, which this app accepts.
-8. Install and run:
+1. Copy `.env.example` to `.env.local`. Fill in the pooled `DATABASE_URL`, the direct `DATABASE_URL_UNPOOLED`, the auth URL above, a cookie secret (`openssl rand -base64 32`), and the object-storage `AWS_*` values for the main branch. Do not commit `.env.local`.
+2. Apply the schema with the **direct** connection. This does not touch `neon_auth`:
+
+```bash
+psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0001_init.sql
+```
+
+3. Allow the first admin. The address must be lowercase:
+
+```sql
+insert into public.admin_allowlist (email) values ('you@example.com');
+```
+
+4. In the Neon console, open the project → Auth:
+   - Keep email sign-in available so a one-time code can be sent. Shared Neon SMTP (`auth@mail.myneon.app`) is enough for now.
+   - Turn on Magic Link if you want the email link as well as the 6-digit code. The app still works when Magic Link is off: the code is the login that sets the session.
+   - Add `http://localhost:3000` if localhost is not already allowed. Production and preview origins must be added before anyone uses them (`neon neon-auth domain add https://YOUR_DOMAIN`).
+5. Allow the browser to upload straight to the private bucket (presigned PUT). With the storage env vars loaded:
+
+```bash
+node scripts/configure-storage-cors.mjs
+```
+
+   The default origin is `http://localhost:3000`. Set `STORAGE_CORS_ORIGINS` to a comma-separated list before running it for production.
+6. Install and run:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000/admin/login`, enter the allowlisted email, and use the link or the code. Create a client, copy the link, and open it in a private window to try the client flow.
+Open `http://localhost:3000/admin/login`, enter the allowlisted email, and use the code (or the link, when Magic Link is enabled). The first successful code creates the Neon Auth user for that address. Create a client, copy the link, and open it in a private window to try the client flow.
 
-To revoke a link, replace that row's `access_token` in the SQL editor with a new 43+ character URL-safe random string. The old URL stops working.
+Anyone not on `admin_allowlist` is refused by the app, even if Neon Auth would otherwise let them create a user. There is no public sign-up screen, and the app's `/api/auth` proxy rejects sign-up and password sign-in. After a session exists, the desk checks the allowlist again and signs the person out when they are not listed.
+
+To revoke a client link, replace that row's `access_token` with a new 43+ character URL-safe random string. The old URL stops working.
+
+The session cookie is marked `Secure`. `http://localhost` is a secure context in current Chromium and Firefox. If a browser drops the cookie, run `npm run dev -- --experimental-https` and open the https URL, and add that origin to the auth trusted domains.
 
 ## Deploy on Vercel
 
 1. Import this repository. Framework preset: Next.js.
-2. Set the same three environment variables for Production and Preview. The secret key must not use the `NEXT_PUBLIC_` prefix.
-3. In Supabase URL configuration, set Site URL to the Vercel domain and add `https://YOUR_DOMAIN/auth/confirm` as a redirect URL.
-4. Deploy. File bytes upload directly from the browser to Supabase with a short-lived signed URL, so phone photos are not limited by the platform request-body size.
+2. Set these environment variables for Production and Preview. None of the secrets use the `NEXT_PUBLIC_` prefix.
+   - `DATABASE_URL` — pooled
+   - `NEON_AUTH_BASE_URL`
+   - `NEON_AUTH_COOKIE_SECRET`
+   - `AWS_ACCESS_KEY_ID`
+   - `AWS_SECRET_ACCESS_KEY`
+   - `AWS_ENDPOINT_URL_S3`
+   - `AWS_REGION`
+3. Add the Vercel origin to the Neon Auth trusted domains (`https://YOUR_DOMAIN`, with no path). Magic-link clicks return to `/auth/confirm` on that origin.
+4. Run `scripts/configure-storage-cors.mjs` with `STORAGE_CORS_ORIGINS` set to the production origin (and preview origins, if uploads should work there).
+5. Deploy. File bytes upload from the browser to the private bucket with a short-lived presigned URL, so phone photos are not limited by the platform request-body size. Downloads use a separate signed URL that expires after two hours.
 
 ## Access model
 
-- Clients are anonymous. The server sends their URL token in the `x-client-token` header. Policies resolve that header to one client id and only allow that client's rows and storage prefix.
-- Admins are Supabase Auth users whose email is in `admin_allowlist`. `private.is_admin()` reads the email from the Auth JWT, not from editable user metadata.
-- The secret key bypasses RLS. The server uses it only to read the allowlist before a session exists, and to sign storage URLs after the caller has already been allowed to see the request. Upload size (20MB) and MIME type are enforced again by the private bucket.
-- Client pages send `Referrer-Policy: no-referrer` so the token is not attached to outbound requests.
+- Clients are anonymous. The server reads the token from `/c/{token}` and every client query filters on that token. Internal notes and the token column are not selected for client pages.
+- Admins are Neon Auth users whose email is in `admin_allowlist`. The check uses the session email, then the table. It does not trust editable profile fields as a permission.
+- The database role can read every row. Only server code holds `DATABASE_URL`. Status transitions, the timeline, attachment scope, and in-app notification rows are still enforced by triggers.
+- Object storage credentials stay on the server. The bucket is private. Upload URLs last 10 minutes and are limited to one object key. The server checks size (20MB) and MIME type again before it stores the attachment row.
+
+Client pages send `Referrer-Policy: no-referrer` so the token is not attached to outbound requests.
 
 ## Checks
 
 ```bash
 npm test
 npm run lint
-npm run test:rls
+npm run test:schema
 npm run build
 ```
 
-`npm run test:rls` applies the migration to a throwaway Postgres and checks tenant isolation, status transitions, the timeline, and storage policies. It starts a temporary cluster when `DATABASE_URL` is unset. Do not point it at a hosted Supabase project.
+`npm run test:schema` applies [`db/migrations/0001_init.sql`](db/migrations/0001_init.sql) to a throwaway Postgres and checks the status machine, the timeline, notifications, and attachment scope. It starts a temporary cluster when `DATABASE_URL` is unset. Do not point it at the hosted Neon project.
 
 ## Later notifications
 
