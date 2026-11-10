@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { insertMessage, messageBody, normalizeFiles, type ActionFailure, type PrepareSuccess } from "@/lib/actions/shared";
 import { loadClientContext } from "@/lib/data";
 import { dbErrorCode, sql } from "@/lib/db";
+import { chainDuplicateError, nextDocumentTopic } from "@/lib/document-chain";
 import { isTopicId } from "@/lib/domain";
 import { hasDatabaseEnv, hasStorageEnv } from "@/lib/env";
 import type { FileMeta } from "@/lib/files";
@@ -74,6 +75,111 @@ export async function prepareClientRequest(input: {
 
   revalidatePath(redirectTo);
   revalidatePath(clientHomePath);
+  return { ok: true, redirectTo, uploads: prepared.uploads };
+}
+
+async function linkedChild(clientId: string, parentRequestId: string): Promise<{ id: string; topic: string } | null> {
+  const rows = await sql()`
+    select id, topic
+    from requests
+    where parent_request_id = ${parentRequestId}
+      and client_id = ${clientId}
+    limit 1
+  `;
+  const row = rows[0];
+  if (!row?.id) return null;
+  return { id: String(row.id), topic: String(row.topic ?? "") };
+}
+
+function duplicateChild(child: { id: string; topic: string }): ActionFailure {
+  const topic = isTopicId(child.topic) ? child.topic : null;
+  return {
+    ok: false,
+    error: topic ? chainDuplicateError(topic) : "已經有下一張單，不會再開一張。",
+    redirectTo: clientRequestPath(child.id),
+  };
+}
+
+export async function prepareLinkedRequest(input: {
+  parentRequestId: string;
+  body: string;
+  files: FileMeta[];
+  workLocation: string;
+}): Promise<PrepareSuccess | ActionFailure> {
+  const scope = await clientScope();
+  if (!scope.ok) return scope;
+  if (!isUuid(input.parentRequestId)) return { ok: false, error: "找不到這個請求。" };
+
+  const parents = await sql()`
+    select id, topic
+    from requests
+    where id = ${input.parentRequestId}
+      and client_id = ${scope.context.client.id}
+    limit 1
+  `;
+  const parent = parents[0];
+  const parentTopic = parent ? String(parent.topic ?? "") : "";
+  if (!parent || !isTopicId(parentTopic)) return { ok: false, error: "找不到這個請求。" };
+  const next = nextDocumentTopic(parentTopic);
+  if (!next) return { ok: false, error: "這個請求不能再開下一張單。" };
+
+  const existing = await linkedChild(scope.context.client.id, String(parent.id));
+  if (existing) return duplicateChild(existing);
+
+  const workLocation = parseWorkLocation(typeof input.workLocation === "string" ? input.workLocation : "");
+  if (!workLocation.ok) return workLocation;
+  const body = messageBody(input.body);
+  if (!body.ok) return body;
+  const files = normalizeFiles(input.files ?? []);
+  if (!Array.isArray(files)) return files;
+  if (!body.value && files.length === 0) {
+    return { ok: false, error: "請填寫內容，或上載至少一個檔案。" };
+  }
+  if (files.length > 0 && !hasStorageEnv()) return { ok: false, error: "系統尚未完成設定。" };
+
+  const parentId = String(parent.id);
+  let requestId: string | null = null;
+  try {
+    const rows = await sql()`
+      insert into requests (client_id, topic, work_location, parent_request_id)
+      values (${scope.context.client.id}, ${next}, ${workLocation.value}, ${parentId})
+      returning id
+    `;
+    const id = rows[0]?.id;
+    requestId = id ? String(id) : null;
+  } catch (error) {
+    if (dbErrorCode(error) === "23505") {
+      const child = await linkedChild(scope.context.client.id, parentId);
+      if (child) return duplicateChild(child);
+    }
+    console.error("linked request insert failed", dbErrorCode(error));
+    return { ok: false, error: "未能建立請求。" };
+  }
+  if (!requestId) return { ok: false, error: "未能建立請求。" };
+
+  const redirectTo = clientRequestPath(requestId);
+  revalidatePath(clientRequestPath(parentId));
+  revalidatePath(clientHomePath);
+  revalidatePath("/admin");
+  revalidatePath(`/admin/requests/${parentId}`);
+
+  const message = await insertMessage({
+    requestId,
+    authorRole: "client",
+    body: body.value,
+  });
+  if (!message.ok) return { ...message, redirectTo };
+
+  const prepared = await prepareUploads({
+    clientId: scope.context.client.id,
+    requestId,
+    messageId: message.id,
+    files,
+  });
+  if (!prepared.ok) return { ...prepared, redirectTo };
+
+  revalidatePath(redirectTo);
+  revalidatePath(`/admin/requests/${requestId}`);
   return { ok: true, redirectTo, uploads: prepared.uploads };
 }
 

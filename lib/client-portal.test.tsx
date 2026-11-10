@@ -9,7 +9,7 @@ import { ClientRequestList } from "../components/client-request-list";
 import { WorkLocation } from "../components/work-location";
 import { clientListHref, navigationAfterCreate, showNewRequest } from "./client-nav";
 import type { RequestRow } from "./database.types";
-import { clientHomePath, clientRequestPath } from "./paths";
+import { clientFollowUpPath, clientHomePath, clientRequestPath } from "./paths";
 import { displayWorkLocation, parseWorkLocation } from "./work-location";
 
 const requestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -23,6 +23,7 @@ function request(partial: Pick<RequestRow, "id" | "topic" | "work_location">): R
     topic: partial.topic,
     status: "pending",
     work_location: partial.work_location,
+    parent_request_id: null,
     created_at: now,
     updated_at: now,
     last_activity_at: now,
@@ -40,6 +41,8 @@ test("after creating a request, the client can open 我的請求 without signing
   assert.equal(clientListHref(navigation.href), clientHomePath);
   assert.equal(showNewRequest(navigation.href), true);
   assert.equal(clientListHref("/client/new"), clientHomePath);
+  assert.equal(clientListHref(clientFollowUpPath(requestId)), clientHomePath);
+  assert.equal(showNewRequest(clientFollowUpPath(requestId)), true);
   assert.equal(clientListHref(clientHomePath), null);
   assert.equal(navigationAfterCreate("https://example.com/client/requests/" + requestId).href, clientHomePath);
 

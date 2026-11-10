@@ -10,6 +10,7 @@ const sql = readFileSync(new URL("../db/migrations/0001_init.sql", import.meta.u
 const accounts = readFileSync(new URL("../db/migrations/0002_accounts.sql", import.meta.url), "utf8");
 const statusSql = readFileSync(new URL("../db/migrations/0003_request_status.sql", import.meta.url), "utf8");
 const locationSql = readFileSync(new URL("../db/migrations/0004_work_location.sql", import.meta.url), "utf8");
+const chainSql = readFileSync(new URL("../db/migrations/0005_document_chain.sql", import.meta.url), "utf8");
 const schemaScript = readFileSync(new URL("../scripts/test-schema.sh", import.meta.url), "utf8");
 const neonConfig = readFileSync(new URL("../neon.ts", import.meta.url), "utf8");
 const data = readFileSync(new URL("./data.ts", import.meta.url), "utf8");
@@ -50,6 +51,23 @@ test("work location is optional on old rows and limited to 120 characters", () =
   assert.doesNotMatch(locationSql, /insert\s+into/i);
 });
 
+test("a document chain is optional and only quotation to invoice to receipt", () => {
+  assert.match(chainSql, /add column parent_request_id uuid/);
+  assert.match(chainSql, /parent_request_id is null or parent_request_id <> id/);
+  assert.match(chainSql, /on delete set null/);
+  assert.match(chainSql, /requests_one_child_idx/);
+  assert.match(chainSql, /parent\.topic = 'quote' and new\.topic = 'invoice'/);
+  assert.match(chainSql, /parent\.topic = 'invoice' and new\.topic = 'receipt'/);
+  assert.match(chainSql, /r\.parent_request_id/);
+  assert.match(chainSql, /child\.id as child_request_id/);
+  assert.doesNotMatch(chainSql, /parent\.topic = 'quote' and new\.topic = 'receipt'/);
+  assert.doesNotMatch(chainSql, /parent_request_id uuid not null/i);
+  assert.doesNotMatch(chainSql, /insert\s+into/i);
+  assert.doesNotMatch(chainSql, /postgres:\/\//i);
+  assert.doesNotMatch(chainSql, /password_hash/i);
+  assert.doesNotMatch(chainSql, /neon_auth\./);
+});
+
 test("deleting a request cascades to messages, attachments, and notifications", () => {
   const cascades = sql.match(/references public\.requests \(id\) on delete cascade/g) ?? [];
   assert.equal(cascades.length, 3);
@@ -64,7 +82,9 @@ test("neon.ts enables auth and the private request-files bucket only", () => {
 });
 
 test("client reads are scoped to the signed-in client and admin reads check the session", () => {
-  assert.match(data, /where client_id = \$\{client\.id\}/);
+  assert.match(data, /where (r\.)?client_id = \$\{client\.id\}/);
+  assert.match(data, /parent\.client_id = r\.client_id/);
+  assert.match(data, /child\.client_id = r\.client_id/);
   assert.match(data, /requireAdmin\(/);
   assert.match(data, /password_hash is not null/);
   assert.doesNotMatch(data, /access_token/);

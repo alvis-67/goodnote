@@ -3,10 +3,12 @@ import { notFound } from "next/navigation";
 
 import { ClientRequestHeading } from "@/components/client-request-heading";
 import { Composer } from "@/components/composer";
+import { DocumentChain } from "@/components/document-chain";
 import { MarkClientRead } from "@/components/mark-read";
 import { Thread } from "@/components/thread";
-import { getClientRequest, loadClientThread } from "@/lib/data";
+import { getClientRequest, loadClientRequestChain, loadClientThread } from "@/lib/data";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
+import { clientFollowUpPath, clientRequestPath } from "@/lib/paths";
 import { signAttachmentPaths } from "@/lib/uploads";
 
 export const metadata: Metadata = { title: "請求" };
@@ -16,7 +18,7 @@ export default async function ClientRequestPage({ params }: { params: Promise<{ 
   if (!isDeskReady()) return null;
   const request = await getClientRequest(id);
   if (!request) notFound();
-  const thread = await loadClientThread(id);
+  const [chain, thread] = await Promise.all([loadClientRequestChain(request.id), loadClientThread(id)]);
   const urls = hasStorageEnv()
     ? await signAttachmentPaths(
         thread.attachments.map((file) => file.storage_path),
@@ -32,6 +34,13 @@ export default async function ClientRequestPage({ params }: { params: Promise<{ 
         status={request.status}
         createdAt={request.created_at}
         location={request.work_location}
+      />
+      <DocumentChain
+        topic={request.topic}
+        parent={chain.parent}
+        child={chain.child}
+        hrefFor={clientRequestPath}
+        startHref={clientFollowUpPath(request.id)}
       />
       <div className="mt-5">
         <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} />

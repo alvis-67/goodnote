@@ -4,9 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { finalizeAdminUploads, prepareAdminReply } from "@/lib/actions/admin";
-import { finalizeClientUploads, prepareClientReply, prepareClientRequest } from "@/lib/actions/client";
+import { finalizeClientUploads, prepareClientReply, prepareClientRequest, prepareLinkedRequest } from "@/lib/actions/client";
 import { navigationAfterCreate } from "@/lib/client-nav";
-import { TOPICS, type TopicId } from "@/lib/domain";
+import { followUpPlaceholder } from "@/lib/document-chain";
+import { TOPICS, topicLabel, type TopicId } from "@/lib/domain";
 import { formatBytes } from "@/lib/format";
 import { acceptAttribute, MAX_FILES, validateFiles, type FileMeta } from "@/lib/files";
 import { MAX_WORK_LOCATION_LENGTH, parseWorkLocation } from "@/lib/work-location";
@@ -17,14 +18,20 @@ export function Composer({
   audience,
   mode,
   requestId,
+  parentRequestId,
+  topic: fixedTopic,
+  initialWorkLocation = "",
 }: {
   audience: Audience;
-  mode: "create" | "reply";
+  mode: "create" | "reply" | "follow";
   requestId?: string;
+  parentRequestId?: string;
+  topic?: TopicId;
+  initialWorkLocation?: string;
 }) {
   const router = useRouter();
-  const [topic, setTopic] = useState<TopicId | null>(null);
-  const [workLocation, setWorkLocation] = useState("");
+  const [topic, setTopic] = useState<TopicId | null>(mode === "follow" ? fixedTopic ?? null : null);
+  const [workLocation, setWorkLocation] = useState(initialWorkLocation);
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -51,8 +58,12 @@ export function Composer({
       setError("請選擇事項。");
       return;
     }
+    if (mode === "follow" && !topic) {
+      setError("這個請求不能再開下一張單。");
+      return;
+    }
     let workLocationValue = "";
-    if (mode === "create" && audience === "client") {
+    if ((mode === "create" || mode === "follow") && audience === "client") {
       const parsedLocation = parseWorkLocation(workLocation);
       if (!parsedLocation.ok) {
         setError(parsedLocation.error);
@@ -73,14 +84,21 @@ export function Composer({
     const prepared =
       audience === "admin"
         ? await prepareAdminReply({ requestId: requestId ?? "", body, files: metas })
-        : mode === "create"
-          ? await prepareClientRequest({
-              topic: topic ?? "",
+        : mode === "follow"
+          ? await prepareLinkedRequest({
+              parentRequestId: parentRequestId ?? "",
               body,
               files: metas,
               workLocation: workLocationValue,
             })
-          : await prepareClientReply({ requestId: requestId ?? "", body, files: metas });
+          : mode === "create"
+            ? await prepareClientRequest({
+                topic: topic ?? "",
+                body,
+                files: metas,
+                workLocation: workLocationValue,
+              })
+            : await prepareClientReply({ requestId: requestId ?? "", body, files: metas });
 
     if (!prepared.ok) {
       setPending(false);
@@ -153,12 +171,25 @@ export function Composer({
       return;
     }
 
+    if (audience === "client" && mode === "follow") {
+      const navigation = navigationAfterCreate(prepared.redirectTo);
+      window.location.replace(navigation.href);
+      return;
+    }
+
     router.push(prepared.redirectTo);
     router.refresh();
   }
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      {mode === "follow" && topic ? (
+        <p className="text-sm">
+          <span className="font-semibold">事項</span>
+          <span className="ml-2">{topicLabel(topic)}</span>
+        </p>
+      ) : null}
+
       {mode === "create" ? (
         <fieldset>
           <legend className="text-sm font-semibold">事項</legend>
@@ -189,7 +220,7 @@ export function Composer({
         </fieldset>
       ) : null}
 
-      {mode === "create" ? (
+      {mode === "create" || mode === "follow" ? (
         <label className="flex flex-col gap-2 text-sm font-semibold">
           工作地點
           <input
@@ -214,7 +245,11 @@ export function Composer({
           onChange={(event) => setBody(event.target.value)}
           rows={5}
           maxLength={4000}
-          placeholder="例如：請根據附件的工程單出報價，抬頭用公司全名。"
+          placeholder={
+            mode === "follow" && topic
+              ? followUpPlaceholder(topic)
+              : "例如：請根據附件的工程單出報價，抬頭用公司全名。"
+          }
           className="rounded-2xl border border-line bg-white px-3 py-3 font-normal leading-7"
         />
       </label>
@@ -274,7 +309,7 @@ export function Composer({
         disabled={pending}
         className="min-h-12 rounded-2xl bg-stamp px-4 py-3 text-base font-semibold text-white disabled:opacity-60"
       >
-        {pending ? progress ?? "正在送出…" : mode === "create" ? "提交請求" : audience === "admin" ? "回覆客戶" : "送出"}
+        {pending ? progress ?? "正在送出…" : mode === "reply" ? (audience === "admin" ? "回覆客戶" : "送出") : "提交請求"}
       </button>
     </form>
   );

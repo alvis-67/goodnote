@@ -27,6 +27,7 @@ export type RequestRow = {
   topic: TopicId;
   status: StatusId;
   work_location: string | null;
+  parent_request_id: string | null;
   created_at: string;
   updated_at: string;
   last_activity_at: string;
@@ -72,6 +73,10 @@ export type InboxRow = {
   client_unread: boolean;
   client_last_read_at: string | null;
   work_location: string | null;
+  parent_request_id: string | null;
+  parent_topic: TopicId | null;
+  child_request_id: string | null;
+  child_topic: TopicId | null;
   company_name: string;
   contact_name: string | null;
   latest_body: string | null;

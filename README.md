@@ -8,6 +8,7 @@ The interface is Traditional Chinese (Hong Kong).
 
 - A client signs in with a login name and password set by the admin, and sees only that company's requests. The login name does not have to be an email. Email on the client record is optional. After a new request is submitted, 「我的請求」 on that screen returns to the list. Signing in again is not required.
 - A new request has a topic (出報價單 / 出發票 / 出收據 / 其他), a work location (工作地點), text, and files, and starts at 待處理. Requests created before the location column still open.
+- From 出報價單 the client can open a linked 出發票, and from that 出發票 a linked 出收據. Each document stays its own request. The original topic, status, messages, and files stay as they are. The new request starts from a short form with the work location filled in. If that next document already exists, the page links to it instead of creating another. Requests with no parent still open.
 - The request page is a two-way thread. Status changes appear on the same timeline.
 - Only an allowlisted admin can sign in, see every request, reply, attach files, and set the status at any time to 待處理, 處理中, 已出單, or 已入機. The admin can delete a request from the desk. Deleting it removes the messages, attachments, and notifications as well.
 - New requests and later client messages are marked and sorted first on the admin desk.
@@ -49,9 +50,10 @@ psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0001_init.sql
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0002_accounts.sql
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0003_request_status.sql
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0004_work_location.sql
+psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0005_document_chain.sql
 ```
 
-If `0001` through `0003_request_status` are already applied, run only `0004_work_location.sql`.
+If `0001` through `0004_work_location` are already applied, run only `0005_document_chain.sql`.
 
 3. Allow an admin, if that email is not already listed. The address must be lowercase:
 
@@ -101,7 +103,7 @@ Old `/c/{token}` URLs send the visitor to `/client/login`. They do not show that
    - `AWS_SECRET_ACCESS_KEY`
    - `AWS_ENDPOINT_URL_S3`
    - `AWS_REGION`
-3. Apply `db/migrations/0002_accounts.sql`, `db/migrations/0003_request_status.sql`, and `db/migrations/0004_work_location.sql` with the direct connection if they are not applied yet. Do not apply them from the app.
+3. Apply `db/migrations/0002_accounts.sql`, `db/migrations/0003_request_status.sql`, `db/migrations/0004_work_location.sql`, and `db/migrations/0005_document_chain.sql` with the direct connection if they are not applied yet. Do not apply them from the app.
 4. Set the first admin password with `scripts/set-admin-password.ts` against the hosted database, using `DATABASE_URL_UNPOOLED` and `ADMIN_EMAIL=alvis@alvis.hk`. Until that hash exists, the admin login will say the password has not been set.
 5. Run `scripts/configure-storage-cors.mjs` with `STORAGE_CORS_ORIGINS` set to the production origin (and preview origins, if uploads should work there).
 6. Deploy. File bytes upload from the browser to the private bucket with a short-lived presigned URL, so phone photos are not limited by the platform request-body size. Downloads use a separate signed URL that expires after two hours.

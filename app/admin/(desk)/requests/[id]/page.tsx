@@ -5,15 +5,17 @@ import { notFound } from "next/navigation";
 import { deleteRequest, setRequestStatus } from "@/lib/actions/admin";
 import { Composer } from "@/components/composer";
 import { DeleteRequest } from "@/components/delete-request";
+import { DocumentChain } from "@/components/document-chain";
 import { MarkAdminRead } from "@/components/mark-read";
 import { StatusBadge } from "@/components/status-badge";
 import { StatusMenu } from "@/components/status-menu";
 import { Thread } from "@/components/thread";
 import { WorkLocation } from "@/components/work-location";
-import { getAdminRequest, loadAdminThread } from "@/lib/data";
+import { getAdminRequest, loadAdminRequestChain, loadAdminThread } from "@/lib/data";
 import { topicLabel } from "@/lib/domain";
 import { formatDateTime } from "@/lib/format";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
+import { adminRequestPath } from "@/lib/paths";
 import { signAttachmentPaths } from "@/lib/uploads";
 
 export const metadata: Metadata = { title: "請求" };
@@ -31,7 +33,7 @@ export default async function AdminRequestPage({
   const loaded = await getAdminRequest(id);
   if (!loaded) notFound();
   const { request, client } = loaded;
-  const thread = await loadAdminThread(request.id);
+  const [chain, thread] = await Promise.all([loadAdminRequestChain(request.id), loadAdminThread(request.id)]);
   const urls = hasStorageEnv()
     ? await signAttachmentPaths(thread.attachments.map((file) => file.storage_path))
     : new Map<string, string>();
@@ -58,6 +60,14 @@ export default async function AdminRequestPage({
           </div>
           <StatusBadge status={request.status} />
         </div>
+        <DocumentChain
+          topic={request.topic}
+          parent={chain.parent}
+          child={chain.child}
+          hrefFor={adminRequestPath}
+          startHref={null}
+          className="mt-4 rounded-2xl bg-desk-card px-4 py-4"
+        />
         <div className="mt-4 rounded-2xl bg-desk-card px-4 py-3 text-sm leading-6">
           <p>只有管理員可以更改狀態。拉下選單可以隨時改為待處理、處理中、已出單或已入機。</p>
           <StatusMenu requestId={request.id} status={request.status} action={setRequestStatus} />
