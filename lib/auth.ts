@@ -26,6 +26,9 @@ export function sessionEmail(user: SessionUser): string | null {
   return normalizeEmail(user?.email ?? null);
 }
 
+// getSession() is `{ data: { session, user } | null, error }`. The email is
+// `data.user.email`. This reads the cookie on the current request, so it sees
+// a session only after the browser has stored the cookie from sign-in.
 export async function currentAdminEmail(): Promise<string | null> {
   if (!hasAuthEnv()) return null;
   const { data, error } = await getAuth().getSession();

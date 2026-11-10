@@ -2,8 +2,9 @@
 
 import { redirect } from "next/navigation";
 
-import { isAllowlisted, sessionEmail } from "@/lib/auth";
+import { isAllowlisted } from "@/lib/auth";
 import { normalizeEmail } from "@/lib/auth/email";
+import { emailFromAuthPayload, settleAdminOtpLogin } from "@/lib/auth/login";
 import { getAuth } from "@/lib/auth/server";
 import { isDeskReady } from "@/lib/env";
 import { requestOrigin } from "@/lib/origin";
@@ -12,17 +13,27 @@ export type AuthResult = { ok: true } | { ok: false; error: string };
 
 type AuthError = { message?: string; status?: number; code?: string };
 
+type AuthUser = { email?: string | null } | null;
+
 // The installed server client builds email OTP and magic link from its endpoint
 // table at runtime. The published sign-in type still only lists email and social.
+// emailOtp resolves to `{ data: { token, user }, error }`. getSession resolves
+// to `{ data: { session, user } | null, error }`.
 type PasswordlessAuth = {
   emailOtp: {
     sendVerificationOtp: (input: { email: string; type: "sign-in" }) => Promise<{ error: AuthError | null }>;
   };
   signIn: {
-    emailOtp: (input: { email: string; otp: string }) => Promise<{ error: AuthError | null }>;
+    emailOtp: (input: { email: string; otp: string }) => Promise<{
+      data: { token?: string | null; user?: AuthUser } | null;
+      error: AuthError | null;
+    }>;
     magicLink: (input: { email: string; callbackURL: string }) => Promise<{ error: AuthError | null }>;
   };
-  getSession: () => Promise<{ data: { user?: { email?: string | null } | null } | null; error: AuthError | null }>;
+  getSession: () => Promise<{
+    data: { user?: AuthUser; session?: { user?: AuthUser } | null } | null;
+    error: AuthError | null;
+  }>;
   signOut: () => Promise<unknown>;
 };
 
@@ -94,12 +105,32 @@ export async function verifyAdminLoginCode(email: string, code: string): Promise
   if (!(await isAllowlisted(normalized))) return { ok: false, error: "這個電郵不在管理員允許清單內。" };
 
   const auth = passwordlessAuth();
-  const { error } = await auth.signIn.emailOtp({ email: normalized, otp: token });
-  if (error) return { ok: false, error: "驗證碼不正確或已過期。" };
+  const signedIn = await auth.signIn.emailOtp({ email: normalized, otp: token });
+  const signedInEmail = signedIn.error ? null : emailFromAuthPayload(signedIn.data);
 
-  const { data } = await auth.getSession();
-  const claimEmail = sessionEmail(data?.user);
-  if (!claimEmail || !(await isAllowlisted(claimEmail))) {
+  // The cookie set by this call is on the response, not on the request
+  // getSession() can read. Only consult it when the OTP body named nobody.
+  let sessionEmail: string | null = null;
+  if (!signedIn.error && !signedInEmail) {
+    try {
+      const { data } = await auth.getSession();
+      sessionEmail = emailFromAuthPayload(data);
+    } catch (error) {
+      console.error("getSession after email OTP threw", error instanceof Error ? error.name : "error");
+    }
+  }
+
+  const outcome = settleAdminOtpLogin({
+    otpFailed: Boolean(signedIn.error),
+    submittedAllowlisted: true,
+    signedInEmail,
+    signedInAllowlisted: signedInEmail ? await isAllowlisted(signedInEmail) : false,
+    sessionEmail,
+    sessionAllowlisted: sessionEmail ? await isAllowlisted(sessionEmail) : false,
+  });
+
+  if (outcome === "invalid") return { ok: false, error: "驗證碼不正確或已過期。" };
+  if (outcome === "forbidden") {
     await auth.signOut();
     return { ok: false, error: "這個帳戶沒有管理員權限。" };
   }
