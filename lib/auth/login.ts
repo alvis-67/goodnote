@@ -1,46 +1,87 @@
+import { randomBytes } from "node:crypto";
+
 import { normalizeEmail } from "@/lib/auth/email";
+import { normalizeLoginName } from "@/lib/auth/login-name";
+import type { AdminLoginCode, ClientLoginCode } from "@/lib/auth/messages";
+import { hashPassword, verifyPassword } from "@/lib/auth/password";
 
-export type OtpLoginResult = "redirect" | "invalid" | "forbidden";
+export type AdminAccount = {
+  passwordHash: string | null;
+  passwordChangedAt: string | null;
+};
 
-type AuthUser = { email?: string | null } | null | undefined;
+export type ClientAccount = {
+  id: string;
+  passwordHash: string | null;
+  passwordChangedAt: string | null;
+};
 
-/**
- * Email from a Neon Auth payload.
- *
- * `signIn.emailOtp` returns `{ token, user }`. `getSession()` returns
- * `{ data: { session, user } | null, error }`, so the caller passes `data`
- * and the email is on `user`, not under `session`.
- */
-export function emailFromAuthPayload(data: unknown): string | null {
-  if (!data || typeof data !== "object") return null;
-  const record = data as {
-    user?: AuthUser;
-    session?: { user?: AuthUser } | null;
-  };
-  return normalizeEmail(record.user?.email ?? record.session?.user?.email ?? null);
+export type AdminLoginResult =
+  | { ok: true; email: string; credentialAt: string; passwordHash: string }
+  | { ok: false; code: AdminLoginCode };
+
+export type ClientLoginResult =
+  | { ok: true; clientId: string; credentialAt: string; passwordHash: string }
+  | { ok: false; code: ClientLoginCode };
+
+let dummyHash: Promise<string> | null = null;
+
+function dummyPasswordHash(): Promise<string> {
+  if (!dummyHash) {
+    dummyHash = hashPassword(randomBytes(32).toString("base64url"));
+  }
+  return dummyHash;
 }
 
-/**
- * What to do after `signIn.emailOtp` returns inside the same Server Action.
- *
- * The Next.js adapter writes the new session with `cookies().set`, but
- * `getSession()` reads only the incoming `Cookie` header. That session is
- * often invisible until the next request, and signing out would delete it.
- * The sign-in response already names the user. When it does not, an empty
- * same-turn session is not a permission failure: the submitted address was
- * checked against `admin_allowlist` before the code was accepted.
- * `requireAdmin` still checks the cookie on the following request.
- */
-export function settleAdminOtpLogin(input: {
-  otpFailed: boolean;
-  submittedAllowlisted: boolean;
-  signedInEmail: string | null;
-  signedInAllowlisted: boolean;
-  sessionEmail: string | null;
-  sessionAllowlisted: boolean;
-}): OtpLoginResult {
-  if (input.otpFailed) return "invalid";
-  if (input.signedInEmail) return input.signedInAllowlisted ? "redirect" : "forbidden";
-  if (input.sessionEmail) return input.sessionAllowlisted ? "redirect" : "forbidden";
-  return input.submittedAllowlisted ? "redirect" : "forbidden";
+export async function authenticateAdmin(
+  emailInput: string,
+  password: string,
+  findAdmin: (email: string) => Promise<AdminAccount | null>,
+): Promise<AdminLoginResult> {
+  const email = normalizeEmail(emailInput);
+  if (!email) {
+    await verifyPassword(password, await dummyPasswordHash());
+    return { ok: false, code: "invalid_email" };
+  }
+
+  const admin = await findAdmin(email);
+  if (!admin) {
+    await verifyPassword(password, await dummyPasswordHash());
+    return { ok: false, code: "not_allowlisted" };
+  }
+  if (!admin.passwordHash || !admin.passwordChangedAt) {
+    await verifyPassword(password, await dummyPasswordHash());
+    return { ok: false, code: "password_unset" };
+  }
+
+  const matches = await verifyPassword(password, admin.passwordHash);
+  if (!matches) return { ok: false, code: "password_wrong" };
+  return { ok: true, email, credentialAt: admin.passwordChangedAt, passwordHash: admin.passwordHash };
+}
+
+export async function authenticateClient(
+  loginNameInput: string,
+  password: string,
+  findClient: (loginName: string) => Promise<ClientAccount | null>,
+): Promise<ClientLoginResult> {
+  const loginName = normalizeLoginName(loginNameInput);
+  if (!loginName) {
+    await verifyPassword(password, await dummyPasswordHash());
+    return { ok: false, code: "invalid_login_name" };
+  }
+
+  const client = await findClient(loginName);
+  if (!client?.passwordHash || !client.passwordChangedAt) {
+    await verifyPassword(password, await dummyPasswordHash());
+    return { ok: false, code: "credentials" };
+  }
+
+  const matches = await verifyPassword(password, client.passwordHash);
+  if (!matches) return { ok: false, code: "credentials" };
+  return {
+    ok: true,
+    clientId: client.id,
+    credentialAt: client.passwordChangedAt,
+    passwordHash: client.passwordHash,
+  };
 }

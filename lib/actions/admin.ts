@@ -4,13 +4,16 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireAdmin } from "@/lib/auth";
-import { getAuth } from "@/lib/auth/server";
-import { parseClientDraft } from "@/lib/clients";
+import { destroyCurrentSession } from "@/lib/auth/session";
+import { normalizeLoginName } from "@/lib/auth/login-name";
+import { hashPassword, passwordError, verifyPassword } from "@/lib/auth/password";
+import { optionalEmail, parseClientAccount } from "@/lib/clients";
 import { dbErrorCode, sql } from "@/lib/db";
 import { isStatusId, nextStatus } from "@/lib/domain";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
 import type { FileMeta } from "@/lib/files";
-import { generateAccessToken, isUuid } from "@/lib/tokens";
+import { asText } from "@/lib/rows";
+import { isUuid } from "@/lib/tokens";
 import { finalizeUploads, prepareUploads } from "@/lib/uploads";
 import { insertMessage, messageBody, normalizeFiles, type ActionFailure, type PrepareSuccess } from "@/lib/actions/shared";
 
@@ -19,23 +22,40 @@ export async function createClientAccount(
   formData: FormData,
 ): Promise<ActionFailure | null> {
   await requireAdmin();
-  const parsed = parseClientDraft({
+  const parsed = parseClientAccount({
     companyName: String(formData.get("companyName") ?? ""),
     contactName: String(formData.get("contactName") ?? ""),
     phone: String(formData.get("phone") ?? ""),
     notes: String(formData.get("notes") ?? ""),
+    loginName: String(formData.get("loginName") ?? ""),
+    email: String(formData.get("email") ?? ""),
+    password: String(formData.get("password") ?? ""),
+    confirmPassword: String(formData.get("confirmPassword") ?? ""),
   });
   if (!parsed.ok) return parsed;
 
+  let passwordHash: string;
+  try {
+    passwordHash = await hashPassword(parsed.value.password);
+  } catch (error) {
+    console.error("password hash failed", error instanceof Error ? error.name : "error");
+    return { ok: false, error: "未能建立客戶。" };
+  }
+
   try {
     const rows = await sql()`
-      insert into clients (company_name, contact_name, phone, notes, access_token)
+      insert into clients (
+        company_name, contact_name, phone, notes, login_name, email, password_hash, password_changed_at
+      )
       values (
         ${parsed.value.companyName},
         ${parsed.value.contactName},
         ${parsed.value.phone},
         ${parsed.value.notes},
-        ${generateAccessToken()}
+        ${parsed.value.loginName},
+        ${parsed.value.email},
+        ${passwordHash},
+        now()
       )
       returning id
     `;
@@ -45,6 +65,7 @@ export async function createClientAccount(
     redirect(`/admin/clients?created=${String(id)}`);
   } catch (error) {
     if (isRedirect(error)) throw error;
+    if (dbErrorCode(error) === "23505") return { ok: false, error: "這個登入名稱已被使用。" };
     console.error("client insert failed", dbErrorCode(error));
     return { ok: false, error: "未能建立客戶。" };
   }
@@ -178,10 +199,157 @@ export async function markAdminRequestRead(requestId: string): Promise<void> {
   `;
 }
 
-export async function signOutAdmin(): Promise<void> {
+export async function changeAdminPassword(
+  _previous: ActionFailure | null,
+  formData: FormData,
+): Promise<ActionFailure | null> {
+  const { email } = await requireAdmin();
+  const currentPassword = String(formData.get("currentPassword") ?? "");
+  const nextPassword = String(formData.get("newPassword") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
+  const problem = passwordError(nextPassword);
+  if (problem) return { ok: false, error: problem };
+  if (nextPassword !== confirmPassword) return { ok: false, error: "兩次輸入的密碼不相同。" };
+
+  const rows = await sql()`
+    select password_hash
+    from admin_allowlist
+    where email = ${email}
+    limit 1
+  `;
+  const currentHash = rows[0]?.password_hash;
+  if (typeof currentHash !== "string" || !(await verifyPassword(currentPassword, currentHash))) {
+    return { ok: false, error: "目前密碼不正確。" };
+  }
+  if (await verifyPassword(nextPassword, currentHash)) {
+    return { ok: false, error: "新密碼不能與目前密碼相同。" };
+  }
+
+  let nextHash: string;
+  try {
+    nextHash = await hashPassword(nextPassword);
+  } catch (error) {
+    console.error("password hash failed", error instanceof Error ? error.name : "error");
+    return { ok: false, error: "未能更改密碼。" };
+  }
+
+  try {
+    const updated = await sql()`
+      with updated as (
+        update admin_allowlist
+        set password_hash = ${nextHash},
+            password_changed_at = now()
+        where email = ${email}
+          and password_hash = ${currentHash}
+        returning email
+      ),
+      revoked as (
+        update sessions
+        set revoked_at = now()
+        from updated
+        where sessions.admin_email = updated.email
+          and sessions.account_type = 'admin'
+          and sessions.revoked_at is null
+        returning sessions.id
+      )
+      select
+        (select count(*)::int from updated) as updated_count,
+        (select count(*)::int from revoked) as revoked_count
+    `;
+    if (Number(updated[0]?.updated_count ?? 0) !== 1) {
+      return { ok: false, error: "未能更改密碼。請重新登入後再試。" };
+    }
+  } catch (error) {
+    console.error("admin password change failed", dbErrorCode(error));
+    return { ok: false, error: "未能更改密碼。" };
+  }
+
+  await destroyCurrentSession();
+  redirect("/admin/login?notice=password");
+}
+
+export type ClientAccessState = { ok: true; message: string } | ActionFailure;
+
+export async function saveClientAccess(
+  _previous: ClientAccessState | null,
+  formData: FormData,
+): Promise<ClientAccessState> {
   await requireAdmin();
-  await getAuth().signOut();
-  redirect("/admin/login");
+  const clientId = String(formData.get("clientId") ?? "");
+  if (!isUuid(clientId)) return { ok: false, error: "找不到這個客戶。" };
+  const password = String(formData.get("password") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
+  const problem = passwordError(password);
+  if (problem) return { ok: false, error: problem };
+  if (password !== confirmPassword) return { ok: false, error: "兩次輸入的密碼不相同。" };
+  const email = optionalEmail(String(formData.get("email") ?? ""));
+  if (!email.ok) return email;
+
+  const existingRows = await sql()`
+    select id, login_name
+    from clients
+    where id = ${clientId}
+    limit 1
+  `;
+  const existing = existingRows[0];
+  if (!existing) return { ok: false, error: "找不到這個客戶。" };
+  const currentLogin = asText(existing.login_name);
+  const loginName = currentLogin ?? normalizeLoginName(formData.get("loginName"));
+  if (!loginName) return { ok: false, error: "請填寫 2 至 40 個字元的登入名稱，不能有空白。" };
+
+  let passwordHash: string;
+  try {
+    passwordHash = await hashPassword(password);
+  } catch (error) {
+    console.error("password hash failed", error instanceof Error ? error.name : "error");
+    return { ok: false, error: "未能重設密碼。" };
+  }
+
+  try {
+    const updated = await sql()`
+      with updated as (
+        update clients
+        set login_name = ${loginName},
+            email = ${email.value},
+            password_hash = ${passwordHash},
+            password_changed_at = now()
+        where id = ${clientId}
+          and (
+            (${currentLogin}::text is null and login_name is null)
+            or login_name = ${currentLogin}
+          )
+        returning id
+      ),
+      revoked as (
+        update sessions
+        set revoked_at = now()
+        from updated
+        where sessions.client_id = updated.id
+          and sessions.account_type = 'client'
+          and sessions.revoked_at is null
+        returning sessions.id
+      )
+      select
+        (select count(*)::int from updated) as updated_count,
+        (select count(*)::int from revoked) as revoked_count
+    `;
+    if (Number(updated[0]?.updated_count ?? 0) !== 1) {
+      return { ok: false, error: "未能重設密碼。" };
+    }
+  } catch (error) {
+    if (isRedirect(error)) throw error;
+    if (dbErrorCode(error) === "23505") return { ok: false, error: "這個登入名稱已被使用。" };
+    console.error("client credential update failed", dbErrorCode(error));
+    return { ok: false, error: "未能重設密碼。" };
+  }
+
+  revalidatePath("/admin/clients");
+  return {
+    ok: true,
+    message: currentLogin
+      ? "密碼已重設。這位客戶現有的登入已結束，請把新密碼私下告知他們。"
+      : "已設定登入。請把登入名稱和密碼私下告知客戶。",
+  };
 }
 
 function isRedirect(error: unknown): boolean {

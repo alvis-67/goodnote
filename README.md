@@ -1,27 +1,30 @@
 # 好事筆記 Goodnote
 
-A small web app for an admin who handles quotes, invoices, and receipts for engineering-company clients. Clients open a private link. There is no client login. Each request has one shared timeline of messages, files, and status changes.
+A small web app for an admin who handles quotes, invoices, and receipts for engineering-company clients. The admin and each client sign in with a password. Each request has one shared timeline of messages, files, and status changes.
 
 The interface is Traditional Chinese (Hong Kong).
 
 ## What the first version does
 
-- A client link shows only that company's requests.
+- A client signs in with a login name and password set by the admin, and sees only that company's requests. The login name does not have to be an email. Email on the client record is optional.
 - A new request has a topic (出報價單 / 出發票 / 出收據 / 其他), text, and files, and starts at 待處理.
 - The request page is a two-way thread. Status changes appear on the same timeline.
 - Only an allowlisted admin can sign in, see every request, reply, attach files, and move status one step at a time: 待處理 → 處理中 → 已出單 → 已入機.
 - New requests and later client messages are marked and sorted first on the admin desk.
-- The admin creates a client and copies that client's link.
+- The admin creates a client account and can later reset that client's password. Resetting a password ends that account's existing sessions.
+- Both desks show 登出. Signing out ends only that browser's session. A session stays valid until logout or a password change. It does not expire because of age or idle time.
 - Notifications in this version are in-app only. The `notification_events` table is the place to add email or WhatsApp later.
 
 ## Stack
 
 - Next.js (App Router) and TypeScript, intended for Vercel
 - Neon Postgres, queried from server code with `@neondatabase/serverless`
-- Neon Managed Better Auth (`@neon/auth`) for admin email OTP and magic link
+- App-owned passwords (scrypt hashes) and long-lived HttpOnly session cookies
 - Private Neon Object Storage bucket `request-files` for attachments
 
-The browser never talks to Postgres. Client pages are authorized by the unguessable `/c/{token}` link. Admin pages require a session whose email is in `admin_allowlist`.
+The browser never talks to Postgres. Admin pages require a session whose email is in `admin_allowlist` and whose password hash is set. Client pages require a session for that client. Old `/c/{token}` links redirect to the client login page and do not load requests or messages.
+
+Neon Auth remains enabled on the existing project, and this repo still does not migrate the `neon_auth` schema. The app does not call it. `NEON_AUTH_BASE_URL` and `NEON_AUTH_COOKIE_SECRET` are not read.
 
 ## Existing Neon project
 
@@ -31,31 +34,37 @@ Use the project that is already created. Do not create another one.
 - Project id: `shiny-heart-58021805`
 - Default branch: main (`br-tiny-sky-aouhyj4x`)
 - Region: `aws-ap-southeast-1`
-- Auth base URL: `https://ep-spring-credit-aoilfu24.neonauth.c-2.ap-southeast-1.aws.neon.tech/neondb/auth`
-- Auth schema: `neon_auth` (leave it alone; this repo does not migrate it)
+- Auth schema: `neon_auth` (leave it alone; this repo does not migrate it, and login does not use it)
 - Private bucket: `request-files` (already created; do not make it public)
 
-`neon.ts` declares `auth: true` and that private bucket. It does not enable the Data API or the AI Gateway. Auth and the bucket are already on the branch, so you do not need to run `neon deploy` to start. If you do run it later, review `neon config plan` first: deploy reconciles the branch and writes secrets into a local env file. Do not commit that file.
+`neon.ts` records `auth: true` and that private bucket so the existing branch policy stays documented. It does not enable the Data API or the AI Gateway. You do not need to run `neon deploy` for this login change. If you do run it later, review `neon config plan` first: deploy reconciles the branch and writes secrets into a local env file. Do not commit that file.
 
 ## Local setup
 
-1. Copy `.env.example` to `.env.local`. Fill in the pooled `DATABASE_URL`, the direct `DATABASE_URL_UNPOOLED`, the auth URL above, a cookie secret (`openssl rand -base64 32`), and the object-storage `AWS_*` values for the main branch. Do not commit `.env.local`.
-2. Apply the schema with the **direct** connection. This does not touch `neon_auth`:
+1. Copy `.env.example` to `.env.local`. Fill in the pooled `DATABASE_URL`, the direct `DATABASE_URL_UNPOOLED`, a session secret (`openssl rand -base64 32`), and the object-storage `AWS_*` values for the main branch. Do not commit `.env.local` or the secret.
+2. Apply the schema with the **direct** connection. This does not touch `neon_auth` and does not insert a password:
 
 ```bash
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0001_init.sql
+psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0002_accounts.sql
 ```
 
-3. Allow the first admin. The address must be lowercase:
+If `0001` is already applied, run only `0002_accounts.sql`.
+
+3. Allow an admin, if that email is not already listed. The address must be lowercase:
 
 ```sql
 insert into public.admin_allowlist (email) values ('you@example.com');
 ```
 
-4. In the Neon console, open the project → Auth:
-   - Keep email sign-in available so a one-time code can be sent. Shared Neon SMTP (`auth@mail.myneon.app`) is enough for now.
-   - Turn on Magic Link if you want the email link as well as the 6-digit code. The app still works when Magic Link is off: the code is the login that sets the session.
-   - Add `http://localhost:3000` if localhost is not already allowed. Production and preview origins must be added before anyone uses them (`neon neon-auth domain add https://YOUR_DOMAIN`).
+The hosted database already lists `alvis@alvis.hk`. An allowlisted email cannot sign in until a password hash is stored. This repo does not seed one.
+
+4. Set that password locally. The script reads the password from the terminal (or a pipe) and does not print it. Do not put the password in the command line, a file that is committed, or the chat log.
+
+```bash
+ADMIN_EMAIL=alvis@alvis.hk DATABASE_URL_UNPOOLED="$DATABASE_URL_UNPOOLED" node --import tsx scripts/set-admin-password.ts
+```
+
 5. Allow the browser to upload straight to the private bucket (presigned PUT). With the storage env vars loaded:
 
 ```bash
@@ -70,48 +79,55 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000/admin/login`, enter the allowlisted email, and use the code (or the link, when Magic Link is enabled). The first successful code creates the Neon Auth user for that address. Create a client, copy the link, and open it in a private window to try the client flow.
+Open `http://localhost:3000/admin/login` and sign in with the allowlisted email and the password you just set. Create a client, give them a login name and password, then open `http://localhost:3000/client/login` in a private window.
 
-Anyone not on `admin_allowlist` is refused by the app, even if Neon Auth would otherwise let them create a user. There is no public sign-up screen, and the app's `/api/auth` proxy rejects sign-up and password sign-in. After a session exists, the desk checks the allowlist again and signs the person out when they are not listed.
+Anyone not on `admin_allowlist` is refused. There is no public sign-up screen. An allowlisted email with no password hash is also refused. After a session exists, the desk checks it again on each request.
 
-To revoke a client link, replace that row's `access_token` with a new 43+ character URL-safe random string. The old URL stops working.
+To end a client's sessions, reset their password on the clients page. To end every session for the admin, use 更改密碼. 登出 ends only the session in this browser.
 
-The session cookie is marked `Secure`. `http://localhost` is a secure context in current Chromium and Firefox. If a browser drops the cookie, run `npm run dev -- --experimental-https` and open the https URL, and add that origin to the auth trusted domains.
+The session cookie is `HttpOnly`, `Secure`, and `SameSite=Lax`. The server does not expire it for age or idle time. `http://localhost` is a secure context in current Chromium and Firefox. If a browser drops the cookie, run `npm run dev -- --experimental-https` and open the https URL.
+
+Old `/c/{token}` URLs send the visitor to `/client/login`. They do not show that client's requests or messages.
 
 ## Deploy on Vercel
 
 1. Import this repository. Framework preset: Next.js.
 2. Set these environment variables for Production and Preview. None of the secrets use the `NEXT_PUBLIC_` prefix.
    - `DATABASE_URL` — pooled
-   - `NEON_AUTH_BASE_URL`
-   - `NEON_AUTH_COOKIE_SECRET`
+   - `SESSION_SECRET` — at least 32 characters, from `openssl rand -base64 32`. Do not commit it. Rotating it signs everyone out; password hashes stay valid.
    - `AWS_ACCESS_KEY_ID`
    - `AWS_SECRET_ACCESS_KEY`
    - `AWS_ENDPOINT_URL_S3`
    - `AWS_REGION`
-3. Add the Vercel origin to the Neon Auth trusted domains (`https://YOUR_DOMAIN`, with no path). Magic-link clicks return to `/auth/confirm` on that origin.
-4. Run `scripts/configure-storage-cors.mjs` with `STORAGE_CORS_ORIGINS` set to the production origin (and preview origins, if uploads should work there).
-5. Deploy. File bytes upload from the browser to the private bucket with a short-lived presigned URL, so phone photos are not limited by the platform request-body size. Downloads use a separate signed URL that expires after two hours.
+3. Apply `db/migrations/0002_accounts.sql` with the direct connection if it is not applied yet. Do not apply it from the app.
+4. Set the first admin password with `scripts/set-admin-password.ts` against the hosted database, using `DATABASE_URL_UNPOOLED` and `ADMIN_EMAIL=alvis@alvis.hk`. Until that hash exists, the admin login will say the password has not been set.
+5. Run `scripts/configure-storage-cors.mjs` with `STORAGE_CORS_ORIGINS` set to the production origin (and preview origins, if uploads should work there).
+6. Deploy. File bytes upload from the browser to the private bucket with a short-lived presigned URL, so phone photos are not limited by the platform request-body size. Downloads use a separate signed URL that expires after two hours.
+
+There is no emailed forgot-password flow. Password resets are done by someone who can already sign in as admin, or with the script above for the first admin password.
 
 ## Access model
 
-- Clients are anonymous. The server reads the token from `/c/{token}` and every client query filters on that token. Internal notes and the token column are not selected for client pages.
-- Admins are Neon Auth users whose email is in `admin_allowlist`. The check uses the session email, then the table. It does not trust editable profile fields as a permission.
+- Clients are accounts. The server reads the session cookie, checks that the session is not revoked, and that `credential_at` still matches the client's `password_changed_at`. Every client query filters on that session's client id. Internal notes and password hashes are not selected for client pages.
+- Admins are rows in `admin_allowlist` with a password hash. The session stores the email. It does not trust a profile field as a permission. Public self-signup is closed.
+- Login names are unique. Email on a client is optional contact information and is not the client login.
 - The database role can read every row. Only server code holds `DATABASE_URL`. Status transitions, the timeline, attachment scope, and in-app notification rows are still enforced by triggers.
 - Object storage credentials stay on the server. The bucket is private. Upload URLs last 10 minutes and are limited to one object key. The server checks size (20MB) and MIME type again before it stores the attachment row.
+- Session tokens are random. The database stores only an HMAC of the token, keyed with `SESSION_SECRET`. Password columns store scrypt hashes, never plaintext.
 
-Client pages send `Referrer-Policy: no-referrer` so the token is not attached to outbound requests.
+Some browsers cap how long they keep a cookie (often about 400 days). The server still accepts a presented session after that span; it does not apply its own timeout. Visiting the app refreshes the cookie's browser lifetime without changing the session.
 
 ## Checks
 
 ```bash
 npm test
 npm run lint
+npm run typecheck
 npm run test:schema
 npm run build
 ```
 
-`npm run test:schema` applies [`db/migrations/0001_init.sql`](db/migrations/0001_init.sql) to a throwaway Postgres and checks the status machine, the timeline, notifications, and attachment scope. It starts a temporary cluster when `DATABASE_URL` is unset. Do not point it at the hosted Neon project.
+`npm run test:schema` applies the migrations in `db/migrations` to a throwaway Postgres and checks the status machine, the timeline, notifications, attachment scope, login-name uniqueness, and that sessions have no expiry columns. It starts a temporary cluster when `DATABASE_URL` is unset. Do not point it at the hosted Neon project.
 
 ## Later notifications
 

@@ -1,11 +1,7 @@
-export function clientHomePath(token: string): string {
-  return `/c/${token}`;
-}
+export const clientHomePath = "/client";
+export const clientNewPath = "/client/new";
+export const clientLoginPath = "/client/login";
 
-export function clientNewPath(token: string): string {
-  return `/c/${token}/new`;
-}
-
-export function clientRequestPath(token: string, requestId: string): string {
-  return `/c/${token}/requests/${requestId}`;
+export function clientRequestPath(requestId: string): string {
+  return `/client/requests/${requestId}`;
 }

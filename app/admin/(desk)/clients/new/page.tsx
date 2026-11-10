@@ -12,7 +12,9 @@ export default function NewClientPage() {
         返回客戶
       </Link>
       <h1 className="mt-3 text-2xl font-semibold">新增客戶</h1>
-      <p className="mt-2 text-sm leading-6 text-muted">至少填寫公司名稱。建立後會產生一條不能猜測的連結。</p>
+      <p className="mt-2 text-sm leading-6 text-muted">
+        填寫公司名稱、登入名稱和密碼。電郵可以留空。請把登入名稱和密碼私下告知客戶。
+      </p>
       <div className="mt-5 rounded-3xl bg-desk-card p-4">
         <ClientForm />
       </div>

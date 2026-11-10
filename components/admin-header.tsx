@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { signOutAdmin } from "@/lib/actions/admin";
+import { signOutAdmin } from "@/lib/actions/auth";
 
 export function AdminHeader({ email, unread }: { email: string; unread: number }) {
   const pathname = usePathname();
@@ -32,8 +32,11 @@ export function AdminHeader({ email, unread }: { email: string; unread: number }
             客戶
           </Link>
         </nav>
-        <div className="ml-auto flex items-center gap-3">
-          <p className="hidden max-w-48 truncate text-sm text-white/75 sm:block">{email}</p>
+        <div className="ml-auto flex items-center gap-1">
+          <p className="hidden max-w-48 truncate px-2 text-sm text-white/75 sm:block">{email}</p>
+          <Link href="/admin/password" className="rounded-lg px-3 py-2 text-sm font-semibold text-white">
+            更改密碼
+          </Link>
           <form action={signOutAdmin}>
             <button type="submit" className="rounded-lg px-3 py-2 text-sm font-semibold text-white">
               登出

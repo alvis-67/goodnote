@@ -14,12 +14,10 @@ type Audience = "client" | "admin";
 export function Composer({
   audience,
   mode,
-  token,
   requestId,
 }: {
   audience: Audience;
   mode: "create" | "reply";
-  token?: string;
   requestId?: string;
 }) {
   const router = useRouter();
@@ -64,8 +62,8 @@ export function Composer({
       audience === "admin"
         ? await prepareAdminReply({ requestId: requestId ?? "", body, files: metas })
         : mode === "create"
-          ? await prepareClientRequest({ token: token ?? "", topic: topic ?? "", body, files: metas })
-          : await prepareClientReply({ token: token ?? "", requestId: requestId ?? "", body, files: metas });
+          ? await prepareClientRequest({ topic: topic ?? "", body, files: metas })
+          : await prepareClientReply({ requestId: requestId ?? "", body, files: metas });
 
     if (!prepared.ok) {
       setPending(false);
@@ -111,7 +109,6 @@ export function Composer({
               files: uploaded,
             })
           : await finalizeClientUploads({
-              token: token ?? "",
               requestId: requestIdFromPath(prepared.redirectTo, uploaded[0]?.path),
               messageId: messageIdFromPath(uploaded[0]?.path),
               files: uploaded,

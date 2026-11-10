@@ -9,24 +9,23 @@ import { isTopicId } from "@/lib/domain";
 import { hasDatabaseEnv, hasStorageEnv } from "@/lib/env";
 import type { FileMeta } from "@/lib/files";
 import { MAX_FILES } from "@/lib/files";
-import { clientRequestPath } from "@/lib/paths";
-import { isAccessToken, isUuid } from "@/lib/tokens";
+import { clientHomePath, clientRequestPath } from "@/lib/paths";
+import { isUuid } from "@/lib/tokens";
 import { finalizeUploads, prepareUploads } from "@/lib/uploads";
 
-async function clientScope(token: string) {
+async function clientScope() {
   if (!hasDatabaseEnv()) return { ok: false as const, error: "系統尚未完成設定。" };
-  const context = await loadClientContext(token);
-  if (!context) return { ok: false as const, error: "連結無效。" };
+  const context = await loadClientContext();
+  if (!context) return { ok: false as const, error: "請先登入。" };
   return { ok: true as const, context };
 }
 
 export async function prepareClientRequest(input: {
-  token: string;
   topic: string;
   body: string;
   files: FileMeta[];
 }): Promise<PrepareSuccess | ActionFailure> {
-  const scope = await clientScope(input.token);
+  const scope = await clientScope();
   if (!scope.ok) return scope;
   if (!isTopicId(input.topic)) return { ok: false, error: "請選擇事項。" };
   const body = messageBody(input.body);
@@ -58,7 +57,7 @@ export async function prepareClientRequest(input: {
     authorRole: "client",
     body: body.value,
   });
-  const redirectTo = clientRequestPath(input.token, requestId);
+  const redirectTo = clientRequestPath(requestId);
   if (!message.ok) return { ...message, redirectTo };
 
   const prepared = await prepareUploads({
@@ -69,18 +68,17 @@ export async function prepareClientRequest(input: {
   });
   if (!prepared.ok) return { ...prepared, redirectTo };
 
-  revalidatePath(clientRequestPath(input.token, requestId));
-  revalidatePath(`/c/${input.token}`);
+  revalidatePath(redirectTo);
+  revalidatePath(clientHomePath);
   return { ok: true, redirectTo, uploads: prepared.uploads };
 }
 
 export async function prepareClientReply(input: {
-  token: string;
   requestId: string;
   body: string;
   files: FileMeta[];
 }): Promise<PrepareSuccess | ActionFailure> {
-  const scope = await clientScope(input.token);
+  const scope = await clientScope();
   if (!scope.ok) return scope;
   if (!isUuid(input.requestId)) return { ok: false, error: "找不到這個請求。" };
   const body = messageBody(input.body);
@@ -108,7 +106,7 @@ export async function prepareClientReply(input: {
     authorRole: "client",
     body: body.value,
   });
-  const redirectTo = clientRequestPath(input.token, String(request.id));
+  const redirectTo = clientRequestPath(String(request.id));
   if (!message.ok) return message;
 
   const prepared = await prepareUploads({
@@ -123,12 +121,11 @@ export async function prepareClientReply(input: {
 }
 
 export async function finalizeClientUploads(input: {
-  token: string;
   requestId: string;
   messageId: string;
   files: { path: string; fileName: string }[];
 }): Promise<{ ok: true; redirectTo: string } | ActionFailure> {
-  const scope = await clientScope(input.token);
+  const scope = await clientScope();
   if (!scope.ok) return scope;
   if (!hasStorageEnv()) return { ok: false, error: "系統尚未完成設定。" };
   if (!isUuid(input.requestId) || !isUuid(input.messageId)) {
@@ -150,15 +147,15 @@ export async function finalizeClientUploads(input: {
     messageId: input.messageId,
     files: input.files ?? [],
   });
-  const redirectTo = clientRequestPath(input.token, input.requestId);
+  const redirectTo = clientRequestPath(input.requestId);
   if (!saved.ok) return { ...saved, redirectTo };
   revalidatePath(redirectTo);
   return { ok: true, redirectTo };
 }
 
-export async function markClientRequestRead(token: string, requestId: string): Promise<void> {
-  if (!hasDatabaseEnv() || !isAccessToken(token) || !isUuid(requestId)) return;
-  const context = await loadClientContext(token);
+export async function markClientRequestRead(requestId: string): Promise<void> {
+  if (!hasDatabaseEnv() || !isUuid(requestId)) return;
+  const context = await loadClientContext();
   if (!context) return;
   await sql()`
     update requests
