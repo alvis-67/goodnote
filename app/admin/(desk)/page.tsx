@@ -3,12 +3,14 @@ import Link from "next/link";
 
 import { deleteRequest } from "@/lib/actions/admin";
 import { DeleteRequest } from "@/components/delete-request";
+import { RequestChainLinks } from "@/components/document-chain";
 import { StatusBadge } from "@/components/status-badge";
 import { WorkLocation } from "@/components/work-location";
 import { loadAdminInbox } from "@/lib/data";
+import type { ChainLink } from "@/lib/document-chain";
 import { STATUSES, TOPICS, isStatusId, isTopicId, topicLabel } from "@/lib/domain";
 import { excerpt, formatRelative } from "@/lib/format";
-import { adminDeskHref } from "@/lib/paths";
+import { adminDeskHref, adminRequestPath } from "@/lib/paths";
 import { isUuid } from "@/lib/tokens";
 
 export const metadata: Metadata = { title: "工作台" };
@@ -99,6 +101,12 @@ export default async function AdminHomePage({
         <ul className="mt-5 flex flex-col gap-3">
           {inbox.rows.map((row) => {
             const fresh = row.admin_unread && !row.admin_last_read_at;
+            const parent: ChainLink | null =
+              row.parent_request_id && row.parent_topic
+                ? { id: row.parent_request_id, topic: row.parent_topic }
+                : null;
+            const child: ChainLink | null =
+              row.child_request_id && row.child_topic ? { id: row.child_request_id, topic: row.child_topic } : null;
             return (
               <li
                 key={row.id}
@@ -106,7 +114,7 @@ export default async function AdminHomePage({
                   row.admin_unread ? "border-stamp" : "border-transparent"
                 }`}
               >
-                <Link href={`/admin/requests/${row.id}`} className="block">
+                <Link href={adminRequestPath(row.id)} className="block">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-semibold">
                       {row.company_name}
@@ -128,6 +136,7 @@ export default async function AdminHomePage({
                     ) : null}
                   </div>
                 </Link>
+                <RequestChainLinks parent={parent} child={child} hrefFor={adminRequestPath} />
                 <div className="mt-3 flex justify-end border-t border-navy/10 pt-3">
                   <DeleteRequest
                     requestId={row.id}

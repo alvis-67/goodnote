@@ -508,4 +508,254 @@ exception
     end if;
 end $$;
 
+select pg_temp.expect(
+  (select parent_request_id is null
+   from public.requests
+   where id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'),
+  'a request created without a parent has no parent'
+);
+select pg_temp.expect(
+  (select parent_request_id is null
+   from public.request_inbox
+   where id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'),
+  'the admin inbox still loads a request with no parent'
+);
+
+insert into public.requests (id, client_id, topic, work_location, parent_request_id)
+values (
+  'c0c0c0c0-c0c0-40c0-80c0-c0c0c0c0c0c0',
+  '11111111-1111-4111-8111-111111111111',
+  'invoice',
+  '九龍灣地盤',
+  'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+);
+
+insert into public.requests (id, client_id, topic, work_location, parent_request_id)
+values (
+  'd0d0d0d0-d0d0-40d0-80d0-d0d0d0d0d0d0',
+  '11111111-1111-4111-8111-111111111111',
+  'receipt',
+  '九龍灣地盤',
+  'c0c0c0c0-c0c0-40c0-80c0-c0c0c0c0c0c0'
+);
+
+select pg_temp.expect(
+  (select topic = 'quote'
+      and status = 'pending'
+      and work_location = '九龍灣地盤'
+      and parent_request_id is null
+      and (
+        select count(*)
+        from public.messages
+        where request_id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+      ) = 0
+   from public.requests
+   where id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+  'opening an invoice does not change the quotation'
+);
+select pg_temp.expect(
+  (select topic = 'invoice'
+      and parent_request_id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+      and work_location = '九龍灣地盤'
+   from public.requests
+   where id = 'c0c0c0c0-c0c0-40c0-80c0-c0c0c0c0c0c0'),
+  'an invoice can follow a quotation and keep the work location'
+);
+select pg_temp.expect(
+  (select topic = 'receipt'
+      and parent_request_id = 'c0c0c0c0-c0c0-40c0-80c0-c0c0c0c0c0c0'
+   from public.requests
+   where id = 'd0d0d0d0-d0d0-40d0-80d0-d0d0d0d0d0d0'),
+  'a receipt can follow an invoice'
+);
+select pg_temp.expect(
+  (select child_request_id = 'c0c0c0c0-c0c0-40c0-80c0-c0c0c0c0c0c0'
+      and child_topic = 'invoice'
+      and parent_request_id is null
+      and count(*) = 1
+   from public.request_inbox
+   where id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+   group by child_request_id, child_topic, parent_request_id),
+  'the admin inbox shows the invoice opened from a quotation as one row'
+);
+select pg_temp.expect(
+  (select parent_request_id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+      and parent_topic = 'quote'
+      and child_request_id = 'd0d0d0d0-d0d0-40d0-80d0-d0d0d0d0d0d0'
+      and child_topic = 'receipt'
+   from public.request_inbox
+   where id = 'c0c0c0c0-c0c0-40c0-80c0-c0c0c0c0c0c0'),
+  'the admin inbox shows both the source quotation and the later receipt'
+);
+
+do $$
+begin
+  insert into public.requests (client_id, topic, parent_request_id)
+  values (
+    '11111111-1111-4111-8111-111111111111',
+    'receipt',
+    'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  );
+  raise exception 'FAIL: quotation opened a receipt directly';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  insert into public.requests (client_id, topic, parent_request_id)
+  values (
+    '11111111-1111-4111-8111-111111111111',
+    'invoice',
+    'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  );
+  raise exception 'FAIL: quotation opened a second invoice';
+exception
+  when unique_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  insert into public.requests (client_id, topic, parent_request_id)
+  values (
+    '22222222-2222-4222-8222-222222222222',
+    'invoice',
+    'e0e0e0e0-e0e0-40e0-80e0-e0e0e0e0e0e0'
+  );
+  raise exception 'FAIL: another client followed a missing quotation';
+exception
+  when foreign_key_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+insert into public.requests (id, client_id, topic)
+values (
+  'e0e0e0e0-e0e0-40e0-80e0-e0e0e0e0e0e0',
+  '11111111-1111-4111-8111-111111111111',
+  'quote'
+);
+
+do $$
+begin
+  insert into public.requests (client_id, topic, parent_request_id)
+  values (
+    '22222222-2222-4222-8222-222222222222',
+    'invoice',
+    'e0e0e0e0-e0e0-40e0-80e0-e0e0e0e0e0e0'
+  );
+  raise exception 'FAIL: invoice followed another client''s quotation';
+exception
+  when insufficient_privilege then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  insert into public.requests (client_id, topic, parent_request_id)
+  values (
+    '11111111-1111-4111-8111-111111111111',
+    'other',
+    'e0e0e0e0-e0e0-40e0-80e0-e0e0e0e0e0e0'
+  );
+  raise exception 'FAIL: other followed a quotation';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  update public.requests
+  set parent_request_id = 'e0e0e0e0-e0e0-40e0-80e0-e0e0e0e0e0e0'
+  where id = 'c0c0c0c0-c0c0-40c0-80c0-c0c0c0c0c0c0';
+  raise exception 'FAIL: invoice was linked to a different quotation';
+exception
+  when insufficient_privilege then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  update public.requests
+  set topic = 'invoice'
+  where id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  raise exception 'FAIL: quotation topic changed';
+exception
+  when insufficient_privilege then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+insert into public.requests (id, client_id, topic, work_location)
+values (
+  'f0f0f0f0-f0f0-40f0-80f0-f0f0f0f0f0f0',
+  '11111111-1111-4111-8111-111111111111',
+  'quote',
+  '觀塘地盤'
+);
+
+insert into public.requests (id, client_id, topic, work_location, parent_request_id)
+values (
+  '0a0a0a0a-0a0a-40a0-80a0-0a0a0a0a0a0a',
+  '11111111-1111-4111-8111-111111111111',
+  'invoice',
+  '觀塘地盤',
+  'f0f0f0f0-f0f0-40f0-80f0-f0f0f0f0f0f0'
+);
+
+insert into public.messages (request_id, author_role, kind, body)
+values (
+  '0a0a0a0a-0a0a-40a0-80a0-0a0a0a0a0a0a',
+  'client',
+  'message',
+  '客人已同意，可以開工'
+);
+
+delete from public.requests
+where id = 'f0f0f0f0-f0f0-40f0-80f0-f0f0f0f0f0f0';
+
+select pg_temp.expect(
+  (select topic = 'invoice'
+      and parent_request_id is null
+      and work_location = '觀塘地盤'
+      and (
+        select body
+        from public.messages
+        where request_id = '0a0a0a0a-0a0a-40a0-80a0-0a0a0a0a0a0a'
+          and kind = 'message'
+      ) = '客人已同意，可以開工'
+   from public.requests
+   where id = '0a0a0a0a-0a0a-40a0-80a0-0a0a0a0a0a0a'),
+  'deleting a quotation keeps the invoice and its message'
+);
+
 rollback;

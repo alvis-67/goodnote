@@ -6,6 +6,14 @@ export function clientRequestPath(requestId: string): string {
   return `/client/requests/${requestId}`;
 }
 
+export function clientFollowUpPath(requestId: string): string {
+  return `/client/requests/${requestId}/next`;
+}
+
+export function adminRequestPath(requestId: string): string {
+  return `/admin/requests/${requestId}`;
+}
+
 export function adminDeskHref(filters: {
   status?: string;
   topic?: string;

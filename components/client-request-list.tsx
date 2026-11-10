@@ -1,11 +1,17 @@
+import { RequestChainLinks } from "@/components/document-chain";
 import { StatusBadge } from "@/components/status-badge";
 import { WorkLocation } from "@/components/work-location";
+import type { ChainLink } from "@/lib/document-chain";
 import type { RequestRow } from "@/lib/database.types";
 import { topicLabel } from "@/lib/domain";
 import { formatRelative } from "@/lib/format";
 import { clientNewPath, clientRequestPath } from "@/lib/paths";
 
-export function ClientRequestList({ requests }: { requests: RequestRow[] }) {
+export function ClientRequestList({
+  requests,
+}: {
+  requests: Array<RequestRow & { parent?: ChainLink | null; child?: ChainLink | null }>;
+}) {
   if (requests.length === 0) {
     return (
       <div className="mt-6 rounded-3xl border border-dashed border-line bg-card px-5 py-8">
@@ -20,13 +26,13 @@ export function ClientRequestList({ requests }: { requests: RequestRow[] }) {
   return (
     <ul className="mt-5 flex flex-col gap-3">
       {requests.map((request) => (
-        <li key={request.id}>
-          <a
-            href={clientRequestPath(request.id)}
-            className={`block rounded-3xl border bg-card px-4 py-4 ${
-              request.client_unread ? "border-stamp" : "border-line"
-            }`}
-          >
+        <li
+          key={request.id}
+          className={`rounded-3xl border bg-card px-4 py-4 ${
+            request.client_unread ? "border-stamp" : "border-line"
+          }`}
+        >
+          <a href={clientRequestPath(request.id)} className="block">
             <div className="flex items-center justify-between gap-3">
               <p className="font-semibold">{topicLabel(request.topic)}</p>
               <StatusBadge status={request.status} />
@@ -35,6 +41,11 @@ export function ClientRequestList({ requests }: { requests: RequestRow[] }) {
             <p className="mt-2 text-sm text-muted">{formatRelative(request.last_activity_at)}</p>
             {request.client_unread ? <p className="mt-2 text-sm font-semibold text-stamp">新回覆</p> : null}
           </a>
+          <RequestChainLinks
+            parent={request.parent ?? null}
+            child={request.child ?? null}
+            hrefFor={clientRequestPath}
+          />
         </li>
       ))}
     </ul>
