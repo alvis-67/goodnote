@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { finalizeAdminUploads, prepareAdminReply } from "@/lib/actions/admin";
+import { finalizeAdminUploads, prepareAdminLinkedReceipt, prepareAdminReply } from "@/lib/actions/admin";
 import { finalizeClientUploads, prepareClientReply, prepareClientRequest, prepareLinkedRequest } from "@/lib/actions/client";
 import { navigationAfterCreate } from "@/lib/client-nav";
-import { followUpPlaceholder } from "@/lib/document-chain";
+import { followUpEmptyPlaceholder, followUpPlaceholder, requestContentRequired } from "@/lib/document-chain";
 import { TOPICS, topicLabel, type TopicId } from "@/lib/domain";
 import { formatBytes } from "@/lib/format";
 import { acceptAttribute, MAX_FILES, validateFiles, type FileMeta } from "@/lib/files";
@@ -21,6 +21,7 @@ export function Composer({
   parentRequestId,
   topic: fixedTopic,
   initialWorkLocation = "",
+  initialBody = "",
 }: {
   audience: Audience;
   mode: "create" | "reply" | "follow";
@@ -28,11 +29,12 @@ export function Composer({
   parentRequestId?: string;
   topic?: TopicId;
   initialWorkLocation?: string;
+  initialBody?: string;
 }) {
   const router = useRouter();
   const [topic, setTopic] = useState<TopicId | null>(mode === "follow" ? fixedTopic ?? null : null);
   const [workLocation, setWorkLocation] = useState(initialWorkLocation);
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(initialBody);
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [continueHref, setContinueHref] = useState<string | null>(null);
@@ -63,7 +65,7 @@ export function Composer({
       return;
     }
     let workLocationValue = "";
-    if ((mode === "create" || mode === "follow") && audience === "client") {
+    if (mode === "create" || mode === "follow") {
       const parsedLocation = parseWorkLocation(workLocation);
       if (!parsedLocation.ok) {
         setError(parsedLocation.error);
@@ -75,30 +77,37 @@ export function Composer({
       setError(invalid);
       return;
     }
-    if (!body.trim() && files.length === 0) {
+    if (requestContentRequired(mode) && !body.trim() && files.length === 0) {
       setError("請填寫內容，或上載至少一個檔案。");
       return;
     }
 
     setPending(true);
     const prepared =
-      audience === "admin"
-        ? await prepareAdminReply({ requestId: requestId ?? "", body, files: metas })
-        : mode === "follow"
-          ? await prepareLinkedRequest({
-              parentRequestId: parentRequestId ?? "",
-              body,
-              files: metas,
-              workLocation: workLocationValue,
-            })
-          : mode === "create"
-            ? await prepareClientRequest({
-                topic: topic ?? "",
+      mode === "follow" && audience === "admin"
+        ? await prepareAdminLinkedReceipt({
+            parentRequestId: parentRequestId ?? "",
+            body,
+            files: metas,
+            workLocation: workLocationValue,
+          })
+        : audience === "admin"
+          ? await prepareAdminReply({ requestId: requestId ?? "", body, files: metas })
+          : mode === "follow"
+            ? await prepareLinkedRequest({
+                parentRequestId: parentRequestId ?? "",
                 body,
                 files: metas,
                 workLocation: workLocationValue,
               })
-            : await prepareClientReply({ requestId: requestId ?? "", body, files: metas });
+            : mode === "create"
+              ? await prepareClientRequest({
+                  topic: topic ?? "",
+                  body,
+                  files: metas,
+                  workLocation: workLocationValue,
+                })
+              : await prepareClientReply({ requestId: requestId ?? "", body, files: metas });
 
     if (!prepared.ok) {
       setPending(false);
@@ -177,6 +186,11 @@ export function Composer({
       return;
     }
 
+    if (audience === "admin" && mode === "follow") {
+      window.location.replace(prepared.redirectTo);
+      return;
+    }
+
     router.push(prepared.redirectTo);
     router.refresh();
   }
@@ -247,7 +261,9 @@ export function Composer({
           maxLength={4000}
           placeholder={
             mode === "follow" && topic
-              ? followUpPlaceholder(topic)
+              ? initialBody.trim()
+                ? followUpPlaceholder(topic)
+                : followUpEmptyPlaceholder()
               : "例如：請根據附件的工程單出報價，抬頭用公司全名。"
           }
           className="rounded-2xl border border-line bg-white px-3 py-3 font-normal leading-7"

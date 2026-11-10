@@ -5,11 +5,12 @@ import { revalidatePath } from "next/cache";
 import { insertMessage, messageBody, normalizeFiles, type ActionFailure, type PrepareSuccess } from "@/lib/actions/shared";
 import { loadClientContext } from "@/lib/data";
 import { dbErrorCode, sql } from "@/lib/db";
-import { chainDuplicateError, nextDocumentTopic } from "@/lib/document-chain";
+import { nextDocumentTopic } from "@/lib/document-chain";
 import { isTopicId } from "@/lib/domain";
 import { hasDatabaseEnv, hasStorageEnv } from "@/lib/env";
 import type { FileMeta } from "@/lib/files";
 import { MAX_FILES } from "@/lib/files";
+import { duplicateFollowUpError, findLinkedChild, insertLinkedRequest } from "@/lib/linked-request";
 import { clientHomePath, clientRequestPath } from "@/lib/paths";
 import { isUuid } from "@/lib/tokens";
 import { finalizeUploads, prepareUploads } from "@/lib/uploads";
@@ -78,28 +79,6 @@ export async function prepareClientRequest(input: {
   return { ok: true, redirectTo, uploads: prepared.uploads };
 }
 
-async function linkedChild(clientId: string, parentRequestId: string): Promise<{ id: string; topic: string } | null> {
-  const rows = await sql()`
-    select id, topic
-    from requests
-    where parent_request_id = ${parentRequestId}
-      and client_id = ${clientId}
-    limit 1
-  `;
-  const row = rows[0];
-  if (!row?.id) return null;
-  return { id: String(row.id), topic: String(row.topic ?? "") };
-}
-
-function duplicateChild(child: { id: string; topic: string }): ActionFailure {
-  const topic = isTopicId(child.topic) ? child.topic : null;
-  return {
-    ok: false,
-    error: topic ? chainDuplicateError(topic) : "已經有下一張單，不會再開一張。",
-    redirectTo: clientRequestPath(child.id),
-  };
-}
-
 export async function prepareLinkedRequest(input: {
   parentRequestId: string;
   body: string;
@@ -123,8 +102,9 @@ export async function prepareLinkedRequest(input: {
   const next = nextDocumentTopic(parentTopic);
   if (!next) return { ok: false, error: "這個請求不能再開下一張單。" };
 
-  const existing = await linkedChild(scope.context.client.id, String(parent.id));
-  if (existing) return duplicateChild(existing);
+  const parentId = String(parent.id);
+  const existing = await findLinkedChild(scope.context.client.id, parentId);
+  if (existing) return duplicateFollowUpError(existing, clientRequestPath(existing.id));
 
   const workLocation = parseWorkLocation(typeof input.workLocation === "string" ? input.workLocation : "");
   if (!workLocation.ok) return workLocation;
@@ -132,54 +112,37 @@ export async function prepareLinkedRequest(input: {
   if (!body.ok) return body;
   const files = normalizeFiles(input.files ?? []);
   if (!Array.isArray(files)) return files;
-  if (!body.value && files.length === 0) {
-    return { ok: false, error: "請填寫內容，或上載至少一個檔案。" };
-  }
   if (files.length > 0 && !hasStorageEnv()) return { ok: false, error: "系統尚未完成設定。" };
 
-  const parentId = String(parent.id);
-  let requestId: string | null = null;
-  try {
-    const rows = await sql()`
-      insert into requests (client_id, topic, work_location, parent_request_id)
-      values (${scope.context.client.id}, ${next}, ${workLocation.value}, ${parentId})
-      returning id
-    `;
-    const id = rows[0]?.id;
-    requestId = id ? String(id) : null;
-  } catch (error) {
-    if (dbErrorCode(error) === "23505") {
-      const child = await linkedChild(scope.context.client.id, parentId);
-      if (child) return duplicateChild(child);
-    }
-    console.error("linked request insert failed", dbErrorCode(error));
-    return { ok: false, error: "未能建立請求。" };
+  const created = await insertLinkedRequest({
+    clientId: scope.context.client.id,
+    topic: next,
+    workLocation: workLocation.value,
+    parentRequestId: parentId,
+    body: body.value,
+  });
+  if (!created.ok && created.reason === "duplicate") {
+    return duplicateFollowUpError(created.child, clientRequestPath(created.child.id));
   }
-  if (!requestId) return { ok: false, error: "未能建立請求。" };
+  if (!created.ok && created.reason === "insert") return { ok: false, error: created.error };
 
+  const requestId = created.requestId;
   const redirectTo = clientRequestPath(requestId);
   revalidatePath(clientRequestPath(parentId));
   revalidatePath(clientHomePath);
   revalidatePath("/admin");
   revalidatePath(`/admin/requests/${parentId}`);
-
-  const message = await insertMessage({
-    requestId,
-    authorRole: "client",
-    body: body.value,
-  });
-  if (!message.ok) return { ...message, redirectTo };
+  revalidatePath(redirectTo);
+  revalidatePath(`/admin/requests/${requestId}`);
+  if (!created.ok) return { ok: false, error: created.error, redirectTo };
 
   const prepared = await prepareUploads({
     clientId: scope.context.client.id,
     requestId,
-    messageId: message.id,
+    messageId: created.messageId,
     files,
   });
   if (!prepared.ok) return { ...prepared, redirectTo };
-
-  revalidatePath(redirectTo);
-  revalidatePath(`/admin/requests/${requestId}`);
   return { ok: true, redirectTo, uploads: prepared.uploads };
 }
 

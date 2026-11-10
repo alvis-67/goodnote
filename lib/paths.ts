@@ -14,6 +14,10 @@ export function adminRequestPath(requestId: string): string {
   return `/admin/requests/${requestId}`;
 }
 
+export function adminFollowUpPath(requestId: string): string {
+  return `/admin/requests/${requestId}/next`;
+}
+
 export function adminDeskHref(filters: {
   status?: string;
   topic?: string;

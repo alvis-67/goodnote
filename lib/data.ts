@@ -6,7 +6,7 @@ import { clientCanAccess } from "@/lib/auth/access";
 import { currentClient, requireAdmin } from "@/lib/auth";
 import type { ClientRow, InboxRow, MessageRow, RequestRow } from "@/lib/database.types";
 import { sql } from "@/lib/db";
-import type { ChainLink } from "@/lib/document-chain";
+import { openingClientContent, type ChainLink } from "@/lib/document-chain";
 import type { StatusId, TopicId } from "@/lib/domain";
 import { isStatusId, isTopicId } from "@/lib/domain";
 import { hasDatabaseEnv, isDeskReady } from "@/lib/env";
@@ -191,6 +191,44 @@ export async function loadAdminRequestChain(requestId: string): Promise<RequestC
   await requireAdmin();
   if (!isUuid(requestId)) return emptyChain;
   return loadChain(requestId, null);
+}
+
+export async function loadClientOpeningContent(requestId: string): Promise<string> {
+  const context = await loadClientContext();
+  if (!context || !isUuid(requestId)) return "";
+  return readOpeningClientContent(requestId, context.client.id);
+}
+
+export async function loadAdminOpeningContent(requestId: string): Promise<string> {
+  await requireAdmin();
+  if (!isUuid(requestId)) return "";
+  return readOpeningClientContent(requestId, null);
+}
+
+async function readOpeningClientContent(requestId: string, clientId: string | null): Promise<string> {
+  const rows = await sql()`
+    select m.id, m.body, m.created_at
+    from messages m
+    join requests r on r.id = m.request_id
+    where m.request_id = ${requestId}
+      and m.kind = 'message'
+      and m.author_role = 'client'
+      and nullif(btrim(m.body), '') is not null
+      and (${clientId}::uuid is null or r.client_id = ${clientId})
+    order by m.created_at asc, m.id asc
+    limit 1
+  `;
+  const row = rows[0];
+  if (!row) return "";
+  return openingClientContent([
+    {
+      id: String(row.id),
+      authorRole: "client",
+      kind: "message",
+      body: asText(row.body),
+      createdAt: asIso(row.created_at),
+    },
+  ]);
 }
 
 export type ThreadAttachment = {
