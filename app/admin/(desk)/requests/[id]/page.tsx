@@ -5,17 +5,18 @@ import { notFound } from "next/navigation";
 import { deleteRequest, setRequestStatus } from "@/lib/actions/admin";
 import { Composer } from "@/components/composer";
 import { DeleteRequest } from "@/components/delete-request";
-import { DocumentChain } from "@/components/document-chain";
+import { DocumentChain, InvoiceReceiptPrompt } from "@/components/document-chain";
 import { MarkAdminRead } from "@/components/mark-read";
 import { StatusBadge } from "@/components/status-badge";
 import { StatusMenu } from "@/components/status-menu";
 import { Thread } from "@/components/thread";
 import { WorkLocation } from "@/components/work-location";
 import { getAdminRequest, loadAdminRequestChain, loadAdminThread } from "@/lib/data";
+import { adminCanOpenReceipt } from "@/lib/document-chain";
 import { topicLabel } from "@/lib/domain";
 import { formatDateTime } from "@/lib/format";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
-import { adminRequestPath } from "@/lib/paths";
+import { adminFollowUpPath, adminRequestPath } from "@/lib/paths";
 import { signAttachmentPaths } from "@/lib/uploads";
 
 export const metadata: Metadata = { title: "請求" };
@@ -65,13 +66,24 @@ export default async function AdminRequestPage({
           parent={chain.parent}
           child={chain.child}
           hrefFor={adminRequestPath}
-          startHref={null}
+          startHref={request.topic === "invoice" ? adminFollowUpPath(request.id) : null}
+          actionNote={
+            request.topic === "invoice" && !chain.child ? adminCanOpenReceipt(client.company_name) : null
+          }
           className="mt-4 rounded-2xl bg-desk-card px-4 py-4"
         />
         <div className="mt-4 rounded-2xl bg-desk-card px-4 py-3 text-sm leading-6">
           <p>只有管理員可以更改狀態。拉下選單可以隨時改為待處理、處理中、已出單或已入機。</p>
           <StatusMenu requestId={request.id} status={request.status} action={setRequestStatus} />
-          {query.notice === "status" ? (
+          {query.notice === "status" && request.topic === "invoice" ? (
+            <InvoiceReceiptPrompt
+              companyName={client.company_name}
+              child={chain.child}
+              startHref={adminFollowUpPath(request.id)}
+              hrefFor={adminRequestPath}
+            />
+          ) : null}
+          {query.notice === "status" && request.topic !== "invoice" ? (
             <p role="status" className="mt-2 text-ok">
               狀態已更新，並寫進時間線。
             </p>
