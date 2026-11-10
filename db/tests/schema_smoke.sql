@@ -758,4 +758,133 @@ select pg_temp.expect(
   'deleting a quotation keeps the invoice and its message'
 );
 
+insert into public.requests (id, client_id, topic, work_location)
+values (
+  'abababab-abab-4bab-8bab-abababababab',
+  '22222222-2222-4222-8222-222222222222',
+  'other',
+  '沙田地盤'
+);
+
+insert into public.messages (id, request_id, author_role, kind, body)
+values (
+  'b1b1b1b1-b1b1-41b1-81b1-b1b1b1b1b1b1',
+  'd0d0d0d0-d0d0-40d0-80d0-d0d0d0d0d0d0',
+  'client',
+  'message',
+  '請連同報價和發票一起刪除'
+);
+
+insert into public.attachments (
+  message_id, request_id, client_id, storage_path, file_name, mime_type, size_bytes
+) values (
+  'b1b1b1b1-b1b1-41b1-81b1-b1b1b1b1b1b1',
+  'd0d0d0d0-d0d0-40d0-80d0-d0d0d0d0d0d0',
+  '11111111-1111-4111-8111-111111111111',
+  '11111111-1111-4111-8111-111111111111/d0d0d0d0-d0d0-40d0-80d0-d0d0d0d0d0d0/b1b1b1b1-b1b1-41b1-81b1-b1b1b1b1b1b1/c1c1c1c1-c1c1-41c1-81c1-c1c1c1c1c1c1.pdf',
+  '地盤相片.pdf',
+  'application/pdf',
+  2048
+);
+
+update public.clients
+set login_name = 'kap-co',
+    password_hash = 'scrypt$16384$8$1$aaaaaaaaaaaaaaaaaaaaaa$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    password_changed_at = now()
+where id = '11111111-1111-4111-8111-111111111111';
+
+insert into public.sessions (token_hash, account_type, client_id, credential_at)
+select
+  'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+  'client',
+  id,
+  password_changed_at
+from public.clients
+where id = '11111111-1111-4111-8111-111111111111';
+
+insert into public.sessions (token_hash, account_type, admin_email, credential_at)
+values (
+  'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+  'admin',
+  'alvis@example.com',
+  now()
+);
+
+select pg_temp.expect(
+  (select count(*) = 1
+   from public.sessions
+   where client_id = '11111111-1111-4111-8111-111111111111'
+     and revoked_at is null),
+  'the client has a live session before delete'
+);
+
+delete from public.clients
+where id = '11111111-1111-4111-8111-111111111111';
+
+select pg_temp.expect(
+  (select count(*) = 0 from public.clients where id = '11111111-1111-4111-8111-111111111111'),
+  'deleting a client removes the account'
+);
+select pg_temp.expect(
+  (select count(*) = 0 from public.clients where login_name = 'kap-co'),
+  'a deleted client can no longer be found by login name'
+);
+select pg_temp.expect(
+  (select count(*) = 0 from public.sessions where client_id = '11111111-1111-4111-8111-111111111111'),
+  'deleting a client removes that client''s sessions'
+);
+select pg_temp.expect(
+  (select count(*) = 0 from public.requests where client_id = '11111111-1111-4111-8111-111111111111'),
+  'deleting a client removes that client''s requests, including a document chain'
+);
+select pg_temp.expect(
+  (select count(*) = 0
+   from public.messages
+   where request_id in (
+     'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+     'c0c0c0c0-c0c0-40c0-80c0-c0c0c0c0c0c0',
+     'd0d0d0d0-d0d0-40d0-80d0-d0d0d0d0d0d0',
+     '0a0a0a0a-0a0a-40a0-80a0-0a0a0a0a0a0a'
+   )),
+  'deleting a client removes that client''s messages'
+);
+select pg_temp.expect(
+  (select count(*) = 0 from public.attachments where client_id = '11111111-1111-4111-8111-111111111111'),
+  'deleting a client removes that client''s attachment rows'
+);
+select pg_temp.expect(
+  (select count(*) = 0 from public.notification_events where client_id = '11111111-1111-4111-8111-111111111111'),
+  'deleting a client removes that client''s notifications'
+);
+select pg_temp.expect(
+  (select count(*) = 1
+   from public.requests
+   where id = 'abababab-abab-4bab-8bab-abababababab'
+     and client_id = '22222222-2222-4222-8222-222222222222'),
+  'deleting a client leaves another client''s request in place'
+);
+select pg_temp.expect(
+  (select count(*) = 1 from public.clients where login_name = 'chan-co'),
+  'deleting a client leaves other client accounts in place'
+);
+select pg_temp.expect(
+  (select count(*) = 1
+   from public.sessions
+   where token_hash = 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+     and account_type = 'admin'),
+  'deleting a client does not remove an admin session'
+);
+
+delete from public.clients
+where id = '99999999-9999-4999-8999-999999999999';
+
+select pg_temp.expect(
+  (select count(*) = 1 from public.clients where id = '22222222-2222-4222-8222-222222222222'),
+  'deleting a missing client leaves the remaining clients in place'
+);
+select pg_temp.expect(
+  (select count(*) = 1 from public.requests where id = 'abababab-abab-4bab-8bab-abababababab'),
+  'deleting a missing client does not remove requests'
+);
+
 rollback;

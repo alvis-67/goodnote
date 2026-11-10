@@ -1,19 +1,29 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { deleteClient } from "@/lib/actions/admin";
 import { ClientAccessForm } from "@/components/client-access-form";
+import { DeleteClient } from "@/components/delete-client";
+import { clientListNotice, clientsListHref } from "@/lib/client-delete";
 import { listAdminClients } from "@/lib/data";
 import { formatDateTime } from "@/lib/format";
+import { isUuid } from "@/lib/tokens";
 
 export const metadata: Metadata = { title: "客戶" };
 
 export default async function ClientsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ created?: string }>;
+  searchParams: Promise<{ created?: string; delete?: string; notice?: string; error?: string }>;
 }) {
-  const params = await searchParams;
-  const clients = await listAdminClients();
+  const [params, clients] = await Promise.all([searchParams, listAdminClients()]);
+  const deleteId = params.delete && isUuid(params.delete) ? params.delete : undefined;
+  const notice = clientListNotice({
+    notice: params.notice,
+    error: params.error,
+    deleteId,
+    clientIds: clients.map((client) => client.id),
+  });
 
   return (
     <main>
@@ -28,6 +38,14 @@ export default async function ClientsPage({
           新增客戶
         </Link>
       </div>
+      {notice ? (
+        <p
+          role={notice.tone === "ok" ? "status" : "alert"}
+          className={`mt-4 rounded-2xl px-4 py-3 text-sm ${notice.tone === "ok" ? "bg-ok-bg text-ok" : "bg-danger-bg text-danger"}`}
+        >
+          {notice.text}
+        </p>
+      ) : null}
       {clients.length === 0 ? (
         <p className="mt-8 rounded-3xl bg-desk-card px-5 py-8 text-muted">尚未有客戶。</p>
       ) : (
@@ -58,6 +76,16 @@ export default async function ClientsPage({
                   </p>
                 ) : null}
                 <ClientAccessForm clientId={client.id} loginName={client.login_name} email={client.email} />
+                <div className="mt-4 border-t border-line pt-4">
+                  <DeleteClient
+                    clientId={client.id}
+                    companyName={client.company_name}
+                    confirming={deleteId === client.id}
+                    action={deleteClient}
+                    askHref={clientsListHref({ deleteId: client.id })}
+                    cancelHref={clientsListHref()}
+                  />
+                </div>
               </li>
             );
           })}

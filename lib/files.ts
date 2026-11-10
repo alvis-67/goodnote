@@ -150,3 +150,27 @@ export function storageKeysForRequest(requestId: string, paths: string[]): strin
   }
   return keys;
 }
+
+export type RequestStorageFile = {
+  requestId: string;
+  path: string;
+};
+
+export function storageKeysByRequest(
+  files: RequestStorageFile[],
+): Array<{ requestId: string; paths: string[] }> {
+  const grouped = new Map<string, string[]>();
+  for (const file of files) {
+    const requestId = file.requestId.trim();
+    if (!requestId) continue;
+    const paths = grouped.get(requestId);
+    if (paths) paths.push(file.path);
+    else grouped.set(requestId, [file.path]);
+  }
+  const groups: Array<{ requestId: string; paths: string[] }> = [];
+  for (const [requestId, paths] of grouped) {
+    const keys = storageKeysForRequest(requestId, paths);
+    if (keys.length > 0) groups.push({ requestId, paths: keys });
+  }
+  return groups;
+}

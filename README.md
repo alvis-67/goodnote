@@ -11,7 +11,7 @@ The interface is Traditional Chinese (Hong Kong).
 - From 出報價單 the client can open a linked 出發票, and from that 出發票 a linked 出收據. Each document stays its own request. The original topic, status, messages, and files stay as they are. The new request starts from a short form with the work location and the original client message filled in. If that earlier request had no text, the form can still be submitted. If that next document already exists, the page links to it instead of creating another. Requests with no parent still open.
 - After an admin updates an invoice's status, the invoice page prompts them that they can open a receipt for that client. The receipt form is filled with the same work location and content. If the receipt already exists, the page links to it.
 - The request page is a two-way thread. Status changes appear on the same timeline.
-- Only an allowlisted admin can sign in, see every request, reply, attach files, and set the status at any time to 待處理, 處理中, 已出單, or 已入機. The admin can delete a request from the desk. Deleting it removes the messages, attachments, and notifications as well.
+- Only an allowlisted admin can sign in, see every request, reply, attach files, and set the status at any time to 待處理, 處理中, 已出單, or 已入機. The admin can delete a request from the desk. Deleting it removes the messages, attachments, and notifications as well. The admin can also delete a client from the clients page after a confirmation step. That ends the client's sessions immediately, and removes that client's requests, messages, and uploaded files. It cannot be undone. A client cannot delete an account.
 - New requests and later client messages are marked and sorted first on the admin desk.
 - The admin creates a client account and can later reset that client's password. Resetting a password ends that account's existing sessions.
 - Both desks show 登出. Signing out ends only that browser's session. A session stays valid until logout or a password change. It does not expire because of age or idle time.
@@ -88,7 +88,7 @@ Open `http://localhost:3000/admin/login` and sign in with the allowlisted email 
 
 Anyone not on `admin_allowlist` is refused. There is no public sign-up screen. An allowlisted email with no password hash is also refused. After a session exists, the desk checks it again on each request.
 
-To end a client's sessions, reset their password on the clients page. To end every session for the admin, use 更改密碼. 登出 ends only the session in this browser.
+To end a client's sessions, reset their password on the clients page, or delete that client. Deleting the client also removes the account, so that login name can no longer sign in. To end every session for the admin, use 更改密碼. 登出 ends only the session in this browser.
 
 The session cookie is `HttpOnly`, `Secure`, and `SameSite=Lax`. The server does not expire it for age or idle time. `http://localhost` is a secure context in current Chromium and Firefox. If a browser drops the cookie, run `npm run dev -- --experimental-https` and open the https URL.
 
@@ -116,8 +116,8 @@ There is no emailed forgot-password flow. Password resets are done by someone wh
 - Clients are accounts. The server reads the session cookie, checks that the session is not revoked, and that `credential_at` still matches the client's `password_changed_at`. Every client query filters on that session's client id. Internal notes and password hashes are not selected for client pages.
 - Admins are rows in `admin_allowlist` with a password hash. The session stores the email. It does not trust a profile field as a permission. Public self-signup is closed.
 - Login names are unique. Email on a client is optional contact information and is not the client login.
-- The database role can read every row. Only server code holds `DATABASE_URL`. Status values, the timeline, attachment scope, and in-app notification rows are still enforced by triggers. An admin can move a request between any of the four statuses. Deleting the request cascades to its messages, attachments, and notifications.
-- Object storage credentials stay on the server. The bucket is private. Upload URLs last 10 minutes and are limited to one object key. The server checks size (20MB) and MIME type again before it stores the attachment row. Deleting a request also deletes those objects from the bucket.
+- The database role can read every row. Only server code holds `DATABASE_URL`. Status values, the timeline, attachment scope, and in-app notification rows are still enforced by triggers. An admin can move a request between any of the four statuses. Deleting the request cascades to its messages, attachments, and notifications, and keeps a later document that only pointed at it. Deleting a client cascades to that client's sessions, requests, messages, attachments, and notifications. No extra migration is required for client deletion.
+- Object storage credentials stay on the server. The bucket is private. Upload URLs last 10 minutes and are limited to one object key. The server checks size (20MB) and MIME type again before it stores the attachment row. Deleting a request, or deleting the client who owns it, also deletes those objects from the bucket through the same request-file cleanup.
 - Session tokens are random. The database stores only an HMAC of the token, keyed with `SESSION_SECRET`. Password columns store scrypt hashes, never plaintext.
 
 Some browsers cap how long they keep a cookie (often about 400 days). The server still accepts a presented session after that span; it does not apply its own timeout. Visiting the app refreshes the cookie's browser lifetime without changing the session.
@@ -132,7 +132,7 @@ npm run test:schema
 npm run build
 ```
 
-`npm run test:schema` applies every file in [`db/migrations`](db/migrations) to a throwaway Postgres and checks status changes, deletion, the timeline, notifications, attachment scope, login-name uniqueness, and that sessions have no expiry columns. It starts a temporary cluster when `DATABASE_URL` is unset. Do not point it at the hosted Neon project.
+`npm run test:schema` applies every file in [`db/migrations`](db/migrations) to a throwaway Postgres and checks status changes, deletion of a request and of a client, the timeline, notifications, attachment scope, login-name uniqueness, and that sessions have no expiry columns. It starts a temporary cluster when `DATABASE_URL` is unset. Do not point it at the hosted Neon project.
 
 ## Later notifications
 
