@@ -7,6 +7,7 @@ import {
   buildStoragePath,
   parseStoragePath,
   resolveFile,
+  storageKeysForRequest,
   validateFiles,
 } from "./files";
 
@@ -51,4 +52,23 @@ test("storage paths stay inside the client, request, and message", () => {
   });
   assert.equal(parseStoragePath(`../${path}`), null);
   assert.equal(parseStoragePath(`${path}.html`), null);
+});
+
+test("deleting a request only removes that request's stored files", () => {
+  const requestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const own = buildStoragePath({
+    clientId: "11111111-1111-4111-8111-111111111111",
+    requestId,
+    messageId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    attachmentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    extension: "pdf",
+  });
+  const other = buildStoragePath({
+    clientId: "11111111-1111-4111-8111-111111111111",
+    requestId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    messageId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    attachmentId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    extension: "pdf",
+  });
+  assert.deepEqual(storageKeysForRequest(requestId, [own, own, other, "../secret", ""]), [own]);
 });

@@ -2,13 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { advanceRequestStatus } from "@/lib/actions/admin";
+import { deleteRequest, setRequestStatus } from "@/lib/actions/admin";
 import { Composer } from "@/components/composer";
+import { DeleteRequest } from "@/components/delete-request";
 import { MarkAdminRead } from "@/components/mark-read";
 import { StatusBadge } from "@/components/status-badge";
+import { StatusMenu } from "@/components/status-menu";
 import { Thread } from "@/components/thread";
 import { getAdminRequest, loadAdminThread } from "@/lib/data";
-import { advanceLabel, nextStatus, topicLabel } from "@/lib/domain";
+import { topicLabel } from "@/lib/domain";
 import { formatDateTime } from "@/lib/format";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
 import { signAttachmentPaths } from "@/lib/uploads";
@@ -20,7 +22,7 @@ export default async function AdminRequestPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ notice?: string; error?: string }>;
+  searchParams: Promise<{ notice?: string; error?: string; confirm?: string }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
@@ -32,7 +34,6 @@ export default async function AdminRequestPage({
   const urls = hasStorageEnv()
     ? await signAttachmentPaths(thread.attachments.map((file) => file.storage_path))
     : new Map<string, string>();
-  const next = nextStatus(request.status);
 
   return (
     <main className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
@@ -56,19 +57,26 @@ export default async function AdminRequestPage({
           <StatusBadge status={request.status} />
         </div>
         <div className="mt-4 rounded-2xl bg-desk-card px-4 py-3 text-sm leading-6">
-          <p>只有管理員可以更改狀態。流程是：待處理 → 處理中 → 已出單 → 已入機。</p>
-          {next ? (
-            <form action={advanceRequestStatus} className="mt-3">
-              <input type="hidden" name="requestId" value={request.id} />
-              <button type="submit" className="min-h-11 rounded-xl bg-navy px-4 font-semibold text-white">
-                {advanceLabel(next)}
-              </button>
-            </form>
-          ) : (
-            <p className="mt-2 font-semibold">已完成入機。</p>
-          )}
-          {query.notice === "status" ? <p className="mt-2 text-ok">狀態已更新，並寫進時間線。</p> : null}
+          <p>只有管理員可以更改狀態。拉下選單可以隨時改為待處理、處理中、已出單或已入機。</p>
+          <StatusMenu requestId={request.id} status={request.status} action={setRequestStatus} />
+          {query.notice === "status" ? (
+            <p role="status" className="mt-2 text-ok">
+              狀態已更新，並寫進時間線。
+            </p>
+          ) : null}
           {query.error === "status" ? <p className="mt-2 text-danger">狀態未能更新。</p> : null}
+          <div className="mt-4 border-t border-navy/10 pt-4">
+            <DeleteRequest
+              requestId={request.id}
+              confirming={query.confirm === "delete"}
+              action={deleteRequest}
+              askHref="?confirm=delete"
+              cancelHref="?"
+              askLabel={`刪除${client.company_name}的${topicLabel(request.topic)}`}
+            />
+            {query.error === "confirm" ? <p className="mt-2 text-danger">請先確認才可以刪除。</p> : null}
+            {query.error === "delete" ? <p className="mt-2 text-danger">未能刪除這則請求。</p> : null}
+          </div>
         </div>
         <div className="mt-5">
           <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} />

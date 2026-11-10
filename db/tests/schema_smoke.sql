@@ -61,26 +61,6 @@ select pg_temp.expect(
 do $$
 begin
   update public.requests
-  set status = 'recorded'
-  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-  raise exception 'FAIL: status skipped ahead';
-exception
-  when check_violation then
-    null;
-  when others then
-    if sqlerrm like 'FAIL:%' then
-      raise;
-    end if;
-end $$;
-
-select pg_temp.expect(
-  (select status = 'pending' from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
-  'skipped status does not stick'
-);
-
-do $$
-begin
-  update public.requests
   set client_id = '22222222-2222-4222-8222-222222222222'
   where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   raise exception 'FAIL: request changed company';
@@ -93,41 +73,91 @@ exception
     end if;
 end $$;
 
-update public.requests
-set status = 'in_progress'
-where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+do $$
+begin
+  update public.requests
+  set status = 'archived'
+  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  raise exception 'FAIL: unknown status stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
 
 select pg_temp.expect(
-  (select status = 'in_progress' from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
-  'admin can move pending to in progress'
+  (select status = 'pending' from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+  'unknown status does not stick'
+);
+
+do $$
+declare
+  statuses text[] := array['pending', 'in_progress', 'issued', 'recorded'];
+  origin text;
+  dest text;
+  changes_before int;
+  changes_after int;
+begin
+  select count(*) into changes_before
+  from public.messages
+  where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    and kind = 'status_change';
+
+  update public.requests
+  set status = 'pending'
+  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+  select count(*) into changes_after
+  from public.messages
+  where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    and kind = 'status_change';
+
+  if changes_after <> changes_before then
+    raise exception 'FAIL: setting the current status wrote a timeline row';
+  end if;
+
+  foreach origin in array statuses loop
+    foreach dest in array statuses loop
+      if origin = dest then
+        continue;
+      end if;
+      update public.requests
+      set status = origin
+      where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      update public.requests
+      set status = dest
+      where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    end loop;
+  end loop;
+
+  update public.requests
+  set status = 'pending'
+  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  update public.requests
+  set status = 'recorded'
+  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+end $$;
+
+select pg_temp.expect(
+  (select status = 'recorded' from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+  'admin can set the status to any of the four values'
 );
 select pg_temp.expect(
-  (select count(*) = 1
-   from public.messages
-   where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-     and kind = 'status_change'
-     and status_from = 'pending'
-     and status_to = 'in_progress'),
-  'status change is written onto the timeline'
+  (select count(*) = 12
+   from (
+     select distinct status_from, status_to
+     from public.messages
+     where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+       and kind = 'status_change'
+   ) pairs),
+  'every status can be reached from every other status'
 );
 select pg_temp.expect(
   (select client_unread from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
   'status change is unread for the client'
-);
-
-update public.requests set status = 'issued' where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-update public.requests set status = 'recorded' where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-
-select pg_temp.expect(
-  (select status = 'recorded' from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
-  'admin can finish the status flow'
-);
-select pg_temp.expect(
-  (select count(*) = 3
-   from public.messages
-   where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-     and kind = 'status_change'),
-  'each status step is on the timeline'
 );
 
 insert into public.messages (request_id, author_role, kind, body, created_at)
@@ -215,6 +245,66 @@ exception
       raise;
     end if;
 end $$;
+
+do $$
+declare
+  message_id uuid;
+begin
+  select id into message_id
+  from public.messages
+  where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    and author_role = 'admin'
+    and kind = 'message'
+  limit 1;
+
+  insert into public.attachments (
+    message_id, request_id, client_id, storage_path, file_name, mime_type, size_bytes
+  ) values (
+    message_id,
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    '11111111-1111-4111-8111-111111111111',
+    '11111111-1111-4111-8111-111111111111/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.pdf',
+    '報價.pdf',
+    'application/pdf',
+    1200
+  );
+end $$;
+
+select pg_temp.expect(
+  (select count(*) = 1 from public.attachments where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+  'a real attachment is stored before delete'
+);
+select pg_temp.expect(
+  (select count(*) > 0 from public.messages where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+  'the request has messages before delete'
+);
+select pg_temp.expect(
+  (select count(*) > 0 from public.notification_events where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+  'the request has notifications before delete'
+);
+
+delete from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+select pg_temp.expect(
+  (select count(*) = 0 from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+  'admin delete removes the request'
+);
+select pg_temp.expect(
+  (select count(*) = 0 from public.messages where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+  'admin delete removes messages'
+);
+select pg_temp.expect(
+  (select count(*) = 0 from public.attachments where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+  'admin delete removes attachments'
+);
+select pg_temp.expect(
+  (select count(*) = 0 from public.notification_events where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+  'admin delete removes notifications'
+);
+select pg_temp.expect(
+  (select count(*) = 2 from public.clients),
+  'deleting a request does not remove the client'
+);
 
 select pg_temp.expect(
   (select count(*) = 0

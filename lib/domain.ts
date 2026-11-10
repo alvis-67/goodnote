@@ -15,7 +15,7 @@ export const STATUSES = [
 export type TopicId = (typeof TOPICS)[number]["id"];
 export type StatusId = (typeof STATUSES)[number]["id"];
 
-const STATUS_ORDER: StatusId[] = ["pending", "in_progress", "issued", "recorded"];
+export const DELETE_CONFIRM_VALUE = "yes";
 
 export function isTopicId(value: string): value is TopicId {
   return TOPICS.some((topic) => topic.id === value);
@@ -33,18 +33,16 @@ export function statusLabel(id: StatusId): string {
   return STATUSES.find((status) => status.id === id)?.label ?? id;
 }
 
-export function nextStatus(current: StatusId): StatusId | null {
-  const index = STATUS_ORDER.indexOf(current);
-  if (index < 0 || index >= STATUS_ORDER.length - 1) return null;
-  return STATUS_ORDER[index + 1] ?? null;
+export function canAssignStatus(from: string, to: string): to is StatusId {
+  return isStatusId(from) && isStatusId(to);
 }
 
-export function statusTransitions(): Array<[StatusId, StatusId]> {
+export function statusAssignments(): Array<[StatusId, StatusId]> {
   const pairs: Array<[StatusId, StatusId]> = [];
-  for (let index = 0; index < STATUS_ORDER.length - 1; index += 1) {
-    const from = STATUS_ORDER[index];
-    const to = STATUS_ORDER[index + 1];
-    if (from && to) pairs.push([from, to]);
+  for (const from of STATUSES) {
+    for (const to of STATUSES) {
+      if (from.id !== to.id) pairs.push([from.id, to.id]);
+    }
   }
   return pairs;
 }
@@ -53,9 +51,6 @@ export function statusChangeText(from: StatusId, to: StatusId): string {
   return `狀態由${statusLabel(from)}改為${statusLabel(to)}`;
 }
 
-export function advanceLabel(next: StatusId): string {
-  if (next === "in_progress") return "開始處理";
-  if (next === "issued") return "標記為已出單";
-  if (next === "recorded") return "標記為已入機";
-  return `標記為${statusLabel(next)}`;
+export function isDeleteConfirmed(value: unknown): boolean {
+  return value === DELETE_CONFIRM_VALUE;
 }

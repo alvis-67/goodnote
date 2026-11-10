@@ -9,12 +9,13 @@ import { normalizeLoginName } from "@/lib/auth/login-name";
 import { hashPassword, passwordError, verifyPassword } from "@/lib/auth/password";
 import { optionalEmail, parseClientAccount } from "@/lib/clients";
 import { dbErrorCode, sql } from "@/lib/db";
-import { isStatusId, nextStatus } from "@/lib/domain";
+import { isDeleteConfirmed, isStatusId } from "@/lib/domain";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
 import type { FileMeta } from "@/lib/files";
+import { clientHomePath, clientRequestPath } from "@/lib/paths";
 import { asText } from "@/lib/rows";
 import { isUuid } from "@/lib/tokens";
-import { finalizeUploads, prepareUploads } from "@/lib/uploads";
+import { deleteRequestFiles, finalizeUploads, prepareUploads } from "@/lib/uploads";
 import { insertMessage, messageBody, normalizeFiles, type ActionFailure, type PrepareSuccess } from "@/lib/actions/shared";
 
 export async function createClientAccount(
@@ -71,35 +72,82 @@ export async function createClientAccount(
   }
 }
 
-export async function advanceRequestStatus(formData: FormData): Promise<void> {
+export async function setRequestStatus(formData: FormData): Promise<void> {
   const requestId = String(formData.get("requestId") ?? "");
-  const back = `/admin/requests/${requestId}`;
+  const status = String(formData.get("status") ?? "");
   if (!isUuid(requestId)) redirect("/admin");
   await requireAdmin();
-  const rows = await sql()`
-    select id, status
-    from requests
-    where id = ${requestId}
-    limit 1
-  `;
-  const request = rows[0];
-  const status = String(request?.status ?? "");
-  if (!request || !isStatusId(status)) redirect("/admin");
-  const next = nextStatus(status);
-  if (!next) redirect(`${back}?error=status`);
+  const back = `/admin/requests/${requestId}`;
+  if (!isStatusId(status)) redirect(`${back}?error=status`);
+
   try {
-    await sql()`
+    const updated = await sql()`
       update requests
-      set status = ${next}
+      set status = ${status}
       where id = ${requestId}
+        and status is distinct from ${status}
+      returning id
     `;
+    if (!updated[0]) {
+      const existing = await sql()`
+        select id
+        from requests
+        where id = ${requestId}
+        limit 1
+      `;
+      if (!existing[0]) redirect("/admin");
+    }
   } catch (error) {
+    if (isRedirect(error)) throw error;
     console.error("status update failed", dbErrorCode(error));
     redirect(`${back}?error=status`);
   }
+
   revalidatePath(back);
   revalidatePath("/admin");
+  revalidatePath(clientHomePath);
+  revalidatePath(clientRequestPath(requestId));
   redirect(`${back}?notice=status`);
+}
+
+export async function deleteRequest(formData: FormData): Promise<void> {
+  const requestId = String(formData.get("requestId") ?? "");
+  if (!isUuid(requestId)) redirect("/admin");
+  await requireAdmin();
+  const back = `/admin/requests/${requestId}`;
+  if (!isDeleteConfirmed(formData.get("confirm"))) redirect(`${back}?error=confirm`);
+
+  let removed = false;
+  try {
+    const files = await sql()`
+      select storage_path
+      from attachments
+      where request_id = ${requestId}
+    `;
+    const rows = await sql()`
+      delete from requests
+      where id = ${requestId}
+      returning id
+    `;
+    removed = Boolean(rows[0]);
+    if (removed) {
+      await deleteRequestFiles(
+        requestId,
+        files.map((file) => String(file.storage_path ?? "")),
+      );
+    }
+  } catch (error) {
+    if (isRedirect(error)) throw error;
+    console.error("request delete failed", dbErrorCode(error));
+    redirect(`${back}?error=delete`);
+  }
+
+  if (!removed) redirect("/admin?error=delete");
+  revalidatePath("/admin");
+  revalidatePath(back);
+  revalidatePath(clientHomePath);
+  revalidatePath(clientRequestPath(requestId));
+  redirect("/admin?notice=deleted");
 }
 
 export async function prepareAdminReply(input: {
