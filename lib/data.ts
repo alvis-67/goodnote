@@ -2,14 +2,15 @@ import "server-only";
 
 import { cache } from "react";
 
-import { requireAdmin } from "@/lib/auth";
+import { clientCanAccess } from "@/lib/auth/access";
+import { currentClient, requireAdmin } from "@/lib/auth";
 import type { ClientRow, InboxRow, MessageRow, RequestRow } from "@/lib/database.types";
 import { sql } from "@/lib/db";
 import type { StatusId, TopicId } from "@/lib/domain";
 import { isStatusId, isTopicId } from "@/lib/domain";
 import { hasDatabaseEnv, isDeskReady } from "@/lib/env";
 import { asBool, asIso, asText } from "@/lib/rows";
-import { isAccessToken, isUuid } from "@/lib/tokens";
+import { isUuid } from "@/lib/tokens";
 
 export type PublicClient = Pick<ClientRow, "id" | "company_name" | "contact_name" | "phone">;
 
@@ -56,66 +57,54 @@ function messageFrom(row: Record<string, unknown>): MessageRow | null {
   };
 }
 
-export const loadClientContext = cache(async (token: string): Promise<ClientContext | null> => {
-  if (!hasDatabaseEnv() || !isAccessToken(token)) return null;
-  const rows = await sql()`
-    select
-      id,
-      company_name,
-      contact_name,
-      phone,
-      (
-        select count(*)::int
-        from requests
-        where requests.client_id = clients.id
-          and requests.client_unread = true
-      ) as unread
-    from clients
-    where access_token = ${token}
-    limit 1
-  `;
-  const row = rows[0];
-  if (!row) return null;
+export const loadClientContext = cache(async (): Promise<ClientContext | null> => {
+  const client = await currentClient();
+  if (!hasDatabaseEnv() || !client) return null;
   return {
     client: {
-      id: String(row.id),
-      company_name: String(row.company_name),
-      contact_name: asText(row.contact_name),
-      phone: asText(row.phone),
+      id: client.id,
+      company_name: client.companyName,
+      contact_name: client.contactName,
+      phone: client.phone,
     },
-    unread: Number(row.unread ?? 0),
+    unread: client.unread,
   };
 });
 
-export async function listClientRequests(token: string): Promise<RequestRow[]> {
-  if (!hasDatabaseEnv() || !isAccessToken(token)) return [];
+export async function listClientRequests(): Promise<RequestRow[]> {
+  const client = await currentClient();
+  if (!hasDatabaseEnv() || !client) return [];
   const rows = await sql()`
     select id, client_id, topic, status, created_at, updated_at, last_activity_at,
            admin_unread, admin_last_read_at, client_unread, client_last_read_at
     from requests
-    where client_id = (select id from clients where access_token = ${token})
+    where client_id = ${client.id}
     order by last_activity_at desc
     limit 200
   `;
   return rows.flatMap((row) => {
     const request = requestFrom(row);
-    return request ? [request] : [];
+    if (!request || !clientCanAccess(client.id, request.client_id)) return [];
+    return [request];
   });
 }
 
-export async function getClientRequest(token: string, requestId: string): Promise<RequestRow | null> {
-  if (!hasDatabaseEnv() || !isAccessToken(token) || !isUuid(requestId)) return null;
+export async function getClientRequest(requestId: string): Promise<RequestRow | null> {
+  const client = await currentClient();
+  if (!hasDatabaseEnv() || !client || !isUuid(requestId)) return null;
   const rows = await sql()`
     select id, client_id, topic, status, created_at, updated_at, last_activity_at,
            admin_unread, admin_last_read_at, client_unread, client_last_read_at
     from requests
     where id = ${requestId}
-      and client_id = (select id from clients where access_token = ${token})
+      and client_id = ${client.id}
     limit 1
   `;
   const row = rows[0];
   if (!row) return null;
-  return requestFrom(row);
+  const request = requestFrom(row);
+  if (!request || !clientCanAccess(client.id, request.client_id)) return null;
+  return request;
 }
 
 export type ThreadAttachment = {
@@ -173,8 +162,8 @@ async function loadThreadFor(requestId: string, clientId: string | null): Promis
   };
 }
 
-export async function loadClientThread(token: string, requestId: string) {
-  const context = await loadClientContext(token);
+export async function loadClientThread(requestId: string) {
+  const context = await loadClientContext();
   if (!context || !isUuid(requestId)) return { messages: [], attachments: [] };
   return loadThreadFor(requestId, context.client.id);
 }
@@ -261,46 +250,42 @@ export async function getAdminRequest(requestId: string): Promise<{
   const request = requests[0] ? requestFrom(requests[0]) : null;
   if (!request) return null;
   const clients = await sql()`
-    select id, company_name, contact_name, phone, notes, access_token, created_at, updated_at
+    select id, company_name, contact_name, phone, notes, login_name, email,
+           (password_hash is not null) as has_password, created_at, updated_at
     from clients
     where id = ${request.client_id}
     limit 1
   `;
   const row = clients[0];
   if (!row) return null;
-  return {
-    request,
-    client: {
-      id: String(row.id),
-      company_name: String(row.company_name),
-      contact_name: asText(row.contact_name),
-      phone: asText(row.phone),
-      notes: asText(row.notes),
-      access_token: String(row.access_token),
-      created_at: asIso(row.created_at),
-      updated_at: asIso(row.updated_at),
-    },
-  };
+  return { request, client: adminClientFrom(row) };
 }
 
 export async function listAdminClients(): Promise<ClientRow[]> {
   if (!isDeskReady()) return [];
   await requireAdmin();
   const rows = await sql()`
-    select id, company_name, contact_name, phone, notes, access_token, created_at, updated_at
+    select id, company_name, contact_name, phone, notes, login_name, email,
+           (password_hash is not null) as has_password, created_at, updated_at
     from clients
     order by created_at desc
   `;
-  return rows.map((row) => ({
+  return rows.map((row) => adminClientFrom(row));
+}
+
+function adminClientFrom(row: Record<string, unknown>): ClientRow {
+  return {
     id: String(row.id),
     company_name: String(row.company_name),
     contact_name: asText(row.contact_name),
     phone: asText(row.phone),
     notes: asText(row.notes),
-    access_token: String(row.access_token),
+    login_name: asText(row.login_name),
+    email: asText(row.email),
+    has_password: asBool(row.has_password),
     created_at: asIso(row.created_at),
     updated_at: asIso(row.updated_at),
-  }));
+  };
 }
 
 export async function countAdminUnread(): Promise<number> {

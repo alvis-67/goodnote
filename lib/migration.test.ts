@@ -6,8 +6,12 @@ import { FILE_RULES, MAX_FILE_BYTES, STORAGE_BUCKET } from "./files";
 import { statusTransitions } from "./domain";
 
 const sql = readFileSync(new URL("../db/migrations/0001_init.sql", import.meta.url), "utf8");
+const accounts = readFileSync(new URL("../db/migrations/0002_accounts.sql", import.meta.url), "utf8");
 const neonConfig = readFileSync(new URL("../neon.ts", import.meta.url), "utf8");
 const data = readFileSync(new URL("./data.ts", import.meta.url), "utf8");
+const legacy = readFileSync(new URL("../app/c/[[...slug]]/page.tsx", import.meta.url), "utf8");
+const pkg = readFileSync(new URL("../package.json", import.meta.url), "utf8");
+const passwordScript = readFileSync(new URL("../scripts/set-admin-password.ts", import.meta.url), "utf8");
 
 test("the database enforces the same status flow and upload limits as the app", () => {
   for (const [from, to] of statusTransitions()) {
@@ -33,8 +37,31 @@ test("neon.ts enables auth and the private request-files bucket only", () => {
   assert.doesNotMatch(neonConfig, /aiGateway/);
 });
 
-test("client reads are scoped by the access token and admin reads check the session", () => {
-  assert.match(data, /where access_token = \$\{token\}/);
+test("client reads are scoped to the signed-in client and admin reads check the session", () => {
+  assert.match(data, /where client_id = \$\{client\.id\}/);
   assert.match(data, /requireAdmin\(/);
-  assert.doesNotMatch(data, /select[^;]*notes[^;]*access_token = \$\{token\}/);
+  assert.match(data, /password_hash is not null/);
+  assert.doesNotMatch(data, /access_token/);
+  for (const line of data.split("\n")) {
+    if (line.includes("password_hash") && !line.includes("password_hash is not null")) {
+      assert.fail(line);
+    }
+  }
+});
+
+test("accounts are app-owned and old token links are not a credential", () => {
+  assert.match(accounts, /create table public\.sessions/);
+  assert.match(accounts, /clients_login_name_key/);
+  assert.match(accounts, /drop column access_token/);
+  assert.match(accounts, /password_hash/);
+  assert.doesNotMatch(accounts, /^\s*expires_at\b/m);
+  assert.doesNotMatch(accounts, /insert\s+into/i);
+  assert.doesNotMatch(accounts, /neon_auth\./);
+  assert.match(legacy, /redirect\("\/client\/login"\)/);
+  assert.doesNotMatch(legacy, /access_token|loadClientContext|listClientRequests|from "@\/lib\/db"/);
+  assert.doesNotMatch(pkg, /@neon\/auth/);
+  assert.match(passwordScript, /ADMIN_EMAIL/);
+  assert.match(passwordScript, /stdin/);
+  assert.doesNotMatch(passwordScript, /console\.(log|error|info)\([^)]*passwordHash/);
+  assert.doesNotMatch(passwordScript, /password\s*=\s*["'][^"']+["']/);
 });

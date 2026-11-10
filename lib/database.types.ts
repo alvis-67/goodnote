@@ -14,7 +14,9 @@ export type ClientRow = {
   contact_name: string | null;
   phone: string | null;
   notes: string | null;
-  access_token: string;
+  login_name: string | null;
+  email: string | null;
+  has_password: boolean;
   created_at: string;
   updated_at: string;
 };

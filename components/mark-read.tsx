@@ -5,10 +5,10 @@ import { useEffect } from "react";
 import { markAdminRequestRead } from "@/lib/actions/admin";
 import { markClientRequestRead } from "@/lib/actions/client";
 
-export function MarkClientRead({ token, requestId }: { token: string; requestId: string }) {
+export function MarkClientRead({ requestId }: { requestId: string }) {
   useEffect(() => {
-    void markClientRequestRead(token, requestId);
-  }, [token, requestId]);
+    void markClientRequestRead(requestId);
+  }, [requestId]);
   return null;
 }
 

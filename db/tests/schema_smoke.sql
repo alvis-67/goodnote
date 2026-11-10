@@ -27,10 +27,10 @@ exception
     end if;
 end $$;
 
-insert into public.clients (id, company_name, contact_name, notes, access_token)
+insert into public.clients (id, company_name, contact_name, notes)
 values
-  ('11111111-1111-4111-8111-111111111111', '甲工程公司', '陳生', '內部備註', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
-  ('22222222-2222-4222-8222-222222222222', '乙工程公司', '李生', '另一備註', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+  ('11111111-1111-4111-8111-111111111111', '甲工程公司', '陳生', '內部備註'),
+  ('22222222-2222-4222-8222-222222222222', '乙工程公司', '李生', '另一備註');
 
 insert into public.requests (id, client_id, topic)
 values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '11111111-1111-4111-8111-111111111111', 'quote');
@@ -215,5 +215,125 @@ exception
       raise;
     end if;
 end $$;
+
+select pg_temp.expect(
+  (select count(*) = 0
+   from information_schema.columns
+   where table_schema = 'public'
+     and table_name = 'clients'
+     and column_name = 'access_token'),
+  'client link tokens are no longer stored'
+);
+
+select pg_temp.expect(
+  (select count(*) = 0
+   from information_schema.columns
+   where table_schema = 'public'
+     and table_name = 'sessions'
+     and column_name in ('expires_at', 'last_seen_at', 'idle_expires_at')),
+  'sessions have no age or idle expiry columns'
+);
+
+insert into public.clients (company_name, login_name, email, password_hash, password_changed_at)
+values (
+  '丙工程公司',
+  'chan-co',
+  null,
+  'scrypt$16384$8$1$aaaaaaaaaaaaaaaaaaaaaa$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  now()
+);
+
+select pg_temp.expect(
+  (select email is null and login_name = 'chan-co' from public.clients where login_name = 'chan-co'),
+  'a client login name does not require an email'
+);
+
+do $$
+begin
+  insert into public.clients (company_name, login_name, password_hash, password_changed_at)
+  values (
+    '重複工程',
+    'chan-co',
+    'scrypt$16384$8$1$cccccccccccccccccccccc$ddddddddddddddddddddddddddddddddddddddddddd',
+    now()
+  );
+  raise exception 'FAIL: duplicate login name';
+exception
+  when unique_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  insert into public.clients (company_name, login_name, password_hash, password_changed_at)
+  values ('大寫工程', 'Chan-Co', 'scrypt$16384$8$1$eeeeeeeeeeeeeeeeeeeeee$fffffffffffffffffffffffffffffffffffffffffff', now());
+  raise exception 'FAIL: mixed-case login name stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  update public.admin_allowlist
+  set password_hash = 'plaintext-password'
+  where email = 'alvis@example.com';
+  raise exception 'FAIL: plaintext admin password stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  insert into public.sessions (token_hash, account_type, admin_email, client_id, credential_at)
+  values (
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    'admin',
+    'alvis@example.com',
+    '11111111-1111-4111-8111-111111111111',
+    now()
+  );
+  raise exception 'FAIL: session had two subjects';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+insert into public.sessions (token_hash, account_type, client_id, credential_at)
+select
+  'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  'client',
+  id,
+  password_changed_at
+from public.clients
+where login_name = 'chan-co';
+
+update public.sessions
+set revoked_at = now()
+where token_hash = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+select pg_temp.expect(
+  (select revoked_at is not null
+   from public.sessions
+   where token_hash = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
+  'a client session can be revoked'
+);
 
 rollback;

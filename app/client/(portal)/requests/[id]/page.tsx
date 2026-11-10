@@ -7,22 +7,18 @@ import { StatusBadge } from "@/components/status-badge";
 import { Thread } from "@/components/thread";
 import { getClientRequest, loadClientThread } from "@/lib/data";
 import { topicLabel } from "@/lib/domain";
-import { hasDatabaseEnv, hasStorageEnv } from "@/lib/env";
+import { hasStorageEnv, isDeskReady } from "@/lib/env";
 import { formatDateTime } from "@/lib/format";
 import { signAttachmentPaths } from "@/lib/uploads";
 
 export const metadata: Metadata = { title: "請求" };
 
-export default async function ClientRequestPage({
-  params,
-}: {
-  params: Promise<{ token: string; id: string }>;
-}) {
-  const { token, id } = await params;
-  if (!hasDatabaseEnv()) return null;
-  const request = await getClientRequest(token, id);
+export default async function ClientRequestPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  if (!isDeskReady()) return null;
+  const request = await getClientRequest(id);
   if (!request) notFound();
-  const thread = await loadClientThread(token, id);
+  const thread = await loadClientThread(id);
   const urls = hasStorageEnv()
     ? await signAttachmentPaths(
         thread.attachments.map((file) => file.storage_path),
@@ -32,7 +28,7 @@ export default async function ClientRequestPage({
 
   return (
     <main>
-      <MarkClientRead token={token} requestId={request.id} />
+      <MarkClientRead requestId={request.id} />
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">{topicLabel(request.topic)}</h1>
@@ -46,7 +42,7 @@ export default async function ClientRequestPage({
       <section className="mt-6 rounded-3xl border border-line bg-card p-4">
         <h2 className="text-base font-semibold">補充或回覆</h2>
         <div className="mt-3">
-          <Composer audience="client" mode="reply" token={token} requestId={request.id} />
+          <Composer audience="client" mode="reply" requestId={request.id} />
         </div>
       </section>
     </main>

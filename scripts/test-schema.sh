@@ -48,6 +48,8 @@ else
   PSQL="$(find_bin psql)"
 fi
 
-"$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT/db/migrations/0001_init.sql" >/dev/null
+for migration in "$ROOT"/db/migrations/*.sql; do
+  "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
+done
 "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT/db/tests/schema_smoke.sql"
 echo "schema smoke test passed"

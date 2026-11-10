@@ -9,9 +9,14 @@ export function hasDatabaseEnv(): boolean {
   return Boolean(process.env.DATABASE_URL);
 }
 
-export function hasAuthEnv(): boolean {
-  const secret = process.env.NEON_AUTH_COOKIE_SECRET ?? "";
-  return Boolean(process.env.NEON_AUTH_BASE_URL) && secret.length >= 32;
+export function hasSessionEnv(): boolean {
+  return (process.env.SESSION_SECRET ?? "").length >= 32;
+}
+
+export function sessionSecret(): string {
+  const secret = process.env.SESSION_SECRET ?? "";
+  if (secret.length < 32) throw new ConfigError();
+  return secret;
 }
 
 export function hasStorageEnv(): boolean {
@@ -24,7 +29,7 @@ export function hasStorageEnv(): boolean {
 }
 
 export function isDeskReady(): boolean {
-  return hasDatabaseEnv() && hasAuthEnv();
+  return hasDatabaseEnv() && hasSessionEnv();
 }
 
 export function databaseUrl(): string {
