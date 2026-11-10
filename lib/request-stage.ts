@@ -2,15 +2,17 @@ import { topicLabel, type TopicId } from "@/lib/domain";
 
 /**
  * `topic` is the document the request started as, and it stays fixed.
- * `stage` is the current step on that same request. The visible title
- * depends on both, because a quotation asking for an invoice is not the
- * same wording as a request that started as an invoice.
+ * The 事項 filter uses that topic. `stage` is the current step on the
+ * same request. Issuing an invoice and confirming payment are separate
+ * stages, so a quotation and a request that started as an invoice share
+ * the invoice title.
  */
 export type StageId = TopicId;
 
 export const QUOTE_TITLE = "出報價單";
-export const QUOTE_INVOICE_TITLE = "已出報價單，請出發票";
-export const RECEIPT_STAGE_TITLE = "發票，已收錢，請出收據";
+export const INVOICE_TITLE = "出發票";
+export const RECEIPT_STAGE_TITLE = "已收錢，請出收據";
+export const OTHER_TITLE = "其他";
 
 export function isStageId(value: string): value is StageId {
   return value === "quote" || value === "invoice" || value === "receipt" || value === "other";
@@ -24,11 +26,11 @@ export function isLegalStage(topic: TopicId, stage: StageId): boolean {
 
 export function requestTitle(topic: TopicId, stage: StageId): string {
   if (topic === "quote" && stage === "quote") return QUOTE_TITLE;
-  if (topic === "quote" && stage === "invoice") return QUOTE_INVOICE_TITLE;
-  if ((topic === "quote" || topic === "invoice") && stage === "receipt") return RECEIPT_STAGE_TITLE;
-  if (topic === "invoice" && stage === "invoice") return topicLabel("invoice");
-  if (topic === "receipt") return topicLabel("receipt");
-  if (topic === "other") return topicLabel("other");
+  if ((topic === "quote" || topic === "invoice") && stage === "invoice") return INVOICE_TITLE;
+  if ((topic === "quote" || topic === "invoice" || topic === "receipt") && stage === "receipt") {
+    return RECEIPT_STAGE_TITLE;
+  }
+  if (topic === "other" && stage === "other") return OTHER_TITLE;
   return topicLabel(topic);
 }
 
@@ -52,7 +54,7 @@ export function stageChangeText(topic: TopicId, from: StageId, to: StageId): str
 export function stageAdvanceLabel(topic: TopicId, stage: StageId): string | null {
   const next = nextRequestStage(topic, stage);
   if (!next) return null;
-  return `改為${requestTitle(topic, next)}`;
+  return requestTitle(topic, next);
 }
 
 export function stageAdvanceNote(): string {
@@ -72,9 +74,16 @@ function stageClientName(companyName: string): string {
   return name.length > 0 ? name : "這位客人";
 }
 
-/** Standing admin prompt for the one allowed next stage. */
+/**
+ * What the admin can issue at the current stage.
+ * A quotation that has moved to the invoice stage asks for an invoice.
+ * The receipt is mentioned only once the request is already at the paid-receipt stage.
+ */
 export function adminStagePrompt(companyName: string, topic: TopicId, stage: StageId): string | null {
-  const next = nextRequestStage(topic, stage);
-  if (!next) return null;
-  return `你可以為${stageClientName(companyName)}改為「${requestTitle(topic, next)}」。`;
+  if (!isLegalStage(topic, stage)) return null;
+  const name = stageClientName(companyName);
+  if (stage === "quote") return `你可以為${name}出報價單。`;
+  if (stage === "invoice") return `你可以為${name}出發票。`;
+  if (stage === "receipt") return `你可以為${name}出收據。`;
+  return null;
 }

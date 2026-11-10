@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 
 import { deleteRequest, setRequestStatus } from "@/lib/actions/admin";
 import { advanceAdminRequestStage } from "@/lib/actions/stage";
-import { AdvanceStage } from "@/components/advance-stage";
+import { AdvanceStage, StagePrompt } from "@/components/advance-stage";
 import { Composer } from "@/components/composer";
 import { DeleteRequest } from "@/components/delete-request";
 import { DocumentChain } from "@/components/document-chain";
@@ -47,6 +47,7 @@ export default async function AdminRequestPage({
     ? await signAttachmentPaths(thread.attachments.map((file) => file.storage_path))
     : new Map<string, string>();
   const advanceLabel = stageAdvanceLabel(request.topic, request.stage);
+  const stagePrompt = adminStagePrompt(client.company_name, request.topic, request.stage);
 
   return (
     <main className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
@@ -96,10 +97,12 @@ export default async function AdminRequestPage({
               requestId={request.id}
               label={advanceLabel}
               note={stageAdvanceNote()}
-              prompt={adminStagePrompt(client.company_name, request.topic, request.stage)}
+              prompt={stagePrompt}
               action={advanceAdminRequestStage}
             />
-          ) : null}
+          ) : (
+            <StagePrompt prompt={stagePrompt} />
+          )}
           <div className="mt-4 border-t border-navy/10 pt-4">
             <DeleteRequest
               requestId={request.id}

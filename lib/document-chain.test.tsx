@@ -4,7 +4,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { AdvanceStage } from "../components/advance-stage";
+import { AdvanceStage, StagePrompt } from "../components/advance-stage";
 import { ClientRequestList } from "../components/client-request-list";
 import { DocumentChain } from "../components/document-chain";
 import { Thread } from "../components/thread";
@@ -67,14 +67,27 @@ test("advancing stays on this request and old links stay viewable", () => {
       action: () => undefined,
     }),
   );
-  assert.match(quote, /改為已出報價單，請出發票/);
+  assert.match(quote, />出發票</);
   assert.match(quote, /不會另開一則/);
   assert.match(quote, /待處理/);
   assert.match(quote, new RegExp(`name="requestId" value="${quoteId}"`));
   assert.match(quote, /type="submit"/);
-  assert.doesNotMatch(quote, /textarea|type="file"|name="workLocation"|開出發票|開出收據|\/next/);
+  assert.doesNotMatch(quote, /已收錢|textarea|type="file"|name="workLocation"|開出發票|開出收據|\/next/);
 
-  const receiptStep = html(
+  const quoteAdmin = html(
+    createElement(AdvanceStage, {
+      requestId: quoteId,
+      label: stageAdvanceLabel("quote", "quote") ?? "",
+      note: stageAdvanceNote(),
+      prompt: adminStagePrompt("甲工程公司", "quote", "quote"),
+      action: () => undefined,
+    }),
+  );
+  assert.match(quoteAdmin, /你可以為甲工程公司出報價單。/);
+  assert.match(quoteAdmin, />出發票</);
+  assert.doesNotMatch(quoteAdmin, /已收錢|出收據/);
+
+  const invoiceStep = html(
     createElement(AdvanceStage, {
       requestId: quoteId,
       label: stageAdvanceLabel("quote", "invoice") ?? "",
@@ -83,9 +96,9 @@ test("advancing stays on this request and old links stay viewable", () => {
       action: () => undefined,
     }),
   );
-  assert.match(receiptStep, /你可以為甲工程公司改為「發票，已收錢，請出收據」/);
-  assert.match(receiptStep, /改為發票，已收錢，請出收據/);
-  assert.doesNotMatch(receiptStep, /開出收據|\/next/);
+  assert.match(invoiceStep, /<p class="font-semibold">你可以為甲工程公司出發票。<\/p>/);
+  assert.match(invoiceStep, />已收錢，請出收據</);
+  assert.doesNotMatch(invoiceStep, /你可以為甲工程公司改為「已收錢|開出收據|\/next/);
 
   const standaloneInvoice = html(
     createElement(AdvanceStage, {
@@ -96,8 +109,20 @@ test("advancing stays on this request and old links stay viewable", () => {
       action: () => undefined,
     }),
   );
-  assert.match(standaloneInvoice, /你可以為甲工程公司改為「發票，已收錢，請出收據」/);
-  assert.doesNotMatch(standaloneInvoice, /已出報價單，請出發票/);
+  assert.match(standaloneInvoice, /你可以為甲工程公司出發票。/);
+  assert.match(standaloneInvoice, />已收錢，請出收據</);
+  assert.doesNotMatch(standaloneInvoice, /已出報價單/);
+
+  const paidReceipt = html(
+    createElement(StagePrompt, {
+      prompt: adminStagePrompt("甲工程公司", "quote", "receipt"),
+    }),
+  );
+  assert.equal(stageAdvanceLabel("quote", "receipt"), null);
+  assert.equal(stageAdvanceLabel("invoice", "receipt"), null);
+  assert.equal(stageAdvanceLabel("receipt", "receipt"), null);
+  assert.match(paidReceipt, /你可以為甲工程公司出收據。/);
+  assert.doesNotMatch(paidReceipt, /<button|出發票|已出報價單/);
 
   const oldLinks = html(
     createElement(DocumentChain, {
@@ -140,7 +165,7 @@ test("one job is one row, titled with the current stage", () => {
   );
   const items = markup.split("<li").slice(1);
   assert.equal(items.length, 1);
-  assert.match(items[0] ?? "", /已出報價單，請出發票/);
+  assert.match(items[0] ?? "", /font-semibold">出發票</);
   assert.match(items[0] ?? "", /九龍灣地盤/);
   assert.match(items[0] ?? "", /待處理/);
   assert.match(items[0] ?? "", new RegExp(`href="${clientRequestPath(quoteId)}"`));
@@ -200,7 +225,7 @@ test("the timeline shows the stage change and the status change on the same requ
         message({
           id: "stage-1",
           kind: "stage_change",
-          body: "階段由出報價單改為已出報價單，請出發票",
+          body: "舊時間線原文",
           stage_from: "quote",
           stage_to: "invoice",
         }),
@@ -216,7 +241,8 @@ test("the timeline shows the stage change and the status change on the same requ
   );
   assert.match(markup, /請報價泥水工程/);
   assert.match(markup, /報價\.pdf/);
-  assert.match(markup, /階段由出報價單改為已出報價單，請出發票/);
+  assert.match(markup, /舊時間線原文/);
+  assert.doesNotMatch(markup, /階段由出報價單改為出發票/);
   assert.match(markup, /狀態由已出單改為待處理/);
   const stageOnly = html(
     createElement(Thread, {
@@ -233,7 +259,7 @@ test("the timeline shows the stage change and the status change on the same requ
       ],
     }),
   );
-  assert.match(stageOnly, /階段由出發票改為發票，已收錢，請出收據/);
+  assert.match(stageOnly, /階段由出發票改為已收錢，請出收據/);
 });
 
 test("new stage changes do not create a linked request", () => {
@@ -273,10 +299,11 @@ test("new stage changes do not create a linked request", () => {
   assert.match(clientPage, /requestTitle|stage=\{request\.stage\}/);
   assert.match(clientPage, /<DocumentChain/);
   assert.match(clientPage, /topic=\{request\.topic\}/);
-  assert.doesNotMatch(clientPage, /\/next|開出發票|開出收據|prepareLinkedRequest/);
+  assert.doesNotMatch(clientPage, /\/next|開出發票|開出收據|prepareLinkedRequest|StagePrompt|adminStagePrompt/);
 
   assert.match(adminPage, /advanceAdminRequestStage/);
-  assert.match(adminPage, /adminStagePrompt\(client\.company_name, request\.topic, request\.stage\)/);
+  assert.match(adminPage, /const stagePrompt = adminStagePrompt\(client\.company_name, request\.topic, request\.stage\)/);
+  assert.match(adminPage, /<StagePrompt prompt=\{stagePrompt\} \/>/);
   assert.match(adminPage, /<StatusMenu/);
   assert.match(adminPage, /setRequestStatus/);
   assert.match(adminPage, /query\.notice === "status"/);
