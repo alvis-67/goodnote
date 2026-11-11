@@ -45,6 +45,12 @@ export function isAllowedMime(value: string): value is AllowedMime {
   return MIME_SET.has(value);
 }
 
+export function mimeForExtension(extension: string): AllowedMime | null {
+  const normalized = extension.toLowerCase();
+  const rule = FILE_RULES.find((item) => (item.extensions as readonly string[]).includes(normalized));
+  return rule?.mime ?? null;
+}
+
 export function extensionOf(name: string): string {
   const base = name.split(/[/\\]/).pop() ?? "";
   const dot = base.lastIndexOf(".");

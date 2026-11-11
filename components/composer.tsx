@@ -20,6 +20,7 @@ import {
   validateFiles,
   type FileMeta,
 } from "@/lib/files";
+import { sameOriginCompletePlan, sameOriginPartPlan, type UploadTicket } from "@/lib/upload-plan";
 import { isUuid } from "@/lib/tokens";
 import { browserViewStorage, rememberProvisionalClientRequest } from "@/lib/view-cache";
 import { MAX_WORK_LOCATION_LENGTH, parseWorkLocation } from "@/lib/work-location";
@@ -27,6 +28,47 @@ import { MAX_WORK_LOCATION_LENGTH, parseWorkLocation } from "@/lib/work-location
 type ComposerProps =
   | { audience: "client"; mode: "create" }
   | { audience: "admin"; mode: "reply"; requestId: string; presets?: readonly ReplyPresetRecord[] };
+
+async function sendPreparedFile(
+  file: File,
+  ticket: UploadTicket,
+  onProgress: (label: string) => void,
+  fileNumber: number,
+  fileCount: number,
+): Promise<boolean> {
+  if (file.size !== ticket.size) return false;
+  const parts = sameOriginPartPlan(file.size, ticket);
+  const complete = sameOriginCompletePlan(ticket);
+  if (!parts || !complete) return false;
+  for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+    const part = parts[partIndex];
+    if (!part) return false;
+    const label =
+      parts.length > 1
+        ? `正在上載 ${fileNumber} / ${fileCount}，第 ${partIndex + 1} / ${parts.length} 段`
+        : `正在上載 ${fileNumber} / ${fileCount}`;
+    onProgress(label);
+    const response = await fetch(part.url, {
+      method: part.method,
+      credentials: "same-origin",
+      redirect: "error",
+      cache: "no-store",
+      headers: part.headers,
+      body: file.slice(part.start, part.end),
+    });
+    if (!response.ok) return false;
+  }
+  onProgress(`正在上載 ${fileNumber} / ${fileCount}`);
+  const completed = await fetch(complete.url, {
+    method: complete.method,
+    credentials: "same-origin",
+    redirect: "error",
+    cache: "no-store",
+    headers: complete.headers,
+    body: JSON.stringify(complete.body),
+  });
+  return completed.ok;
+}
 
 export function Composer(props: ComposerProps) {
   const { audience, mode } = props;
@@ -132,17 +174,18 @@ export function Composer(props: ComposerProps) {
         for (let index = 0; index < prepared.uploads.length; index += 1) {
           const ticket = prepared.uploads[index];
           const file = files[index];
-          if (!ticket || !file) {
+          if (!ticket || !file || file.size !== ticket.size) {
             failed = true;
             break;
           }
-          setProgress(`正在上載 ${index + 1} / ${prepared.uploads.length}`);
-          const response = await fetch(ticket.url, {
-            method: ticket.method,
-            headers: ticket.headers,
-            body: file,
-          });
-          if (!response.ok) {
+          const delivered = await sendPreparedFile(
+            file,
+            ticket,
+            setProgress,
+            index + 1,
+            prepared.uploads.length,
+          );
+          if (!delivered) {
             failed = true;
             break;
           }

@@ -126,6 +126,13 @@ export async function deleteRequest(formData: FormData): Promise<void> {
 
   let removed = false;
   try {
+    const existing = await sql()`
+      select client_id
+      from requests
+      where id = ${requestId}
+      limit 1
+    `;
+    const clientId = String(existing[0]?.client_id ?? "");
     const files = await sql()`
       select storage_path
       from attachments
@@ -141,6 +148,7 @@ export async function deleteRequest(formData: FormData): Promise<void> {
       await deleteRequestFiles(
         requestId,
         files.map((file) => String(file.storage_path ?? "")),
+        clientId,
       );
     }
   } catch (error) {
@@ -167,6 +175,11 @@ export async function deleteClient(formData: FormData): Promise<void> {
 
   let removed = false;
   try {
+    const requests = await sql()`
+      select id
+      from requests
+      where client_id = ${clientId}
+    `;
     const files = await sql()`
       select request_id, storage_path
       from attachments
@@ -185,7 +198,15 @@ export async function deleteClient(formData: FormData): Promise<void> {
           path: String(file.storage_path ?? ""),
         })),
       );
-      await Promise.all(groups.map((group) => deleteRequestFiles(group.requestId, group.paths)));
+      const seen = new Set(groups.map((group) => group.requestId));
+      for (const request of requests) {
+        const requestId = String(request.id ?? "");
+        if (!requestId || seen.has(requestId)) continue;
+        groups.push({ requestId, paths: [] });
+      }
+      await Promise.all(
+        groups.map((group) => deleteRequestFiles(group.requestId, group.paths, clientId)),
+      );
     }
   } catch (error) {
     if (isRedirect(error)) throw error;

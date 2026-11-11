@@ -74,14 +74,7 @@ The hosted database already lists `alvis@alvis.hk`. An allowlisted email cannot 
 ADMIN_EMAIL=alvis@alvis.hk DATABASE_URL_UNPOOLED="$DATABASE_URL_UNPOOLED" node --import tsx scripts/set-admin-password.ts
 ```
 
-5. Allow the browser to upload straight to the private bucket (presigned PUT). With the storage env vars loaded:
-
-```bash
-node scripts/configure-storage-cors.mjs
-```
-
-   The default origin is `http://localhost:3000`. Set `STORAGE_CORS_ORIGINS` to a comma-separated list before running it for production.
-6. Install and run:
+5. Install and run:
 
 ```bash
 npm install
@@ -110,8 +103,7 @@ Old `/c/{token}` URLs send the visitor to `/client/login`. They do not show that
    - `AWS_REGION`
 3. Apply `db/migrations/0002_accounts.sql`, `db/migrations/0003_request_status.sql`, `db/migrations/0004_work_location.sql`, `db/migrations/0005_document_chain.sql`, `db/migrations/0006_request_stage.sql`, `db/migrations/0007_stage_titles.sql`, `db/migrations/0008_request_statuses.sql`, and `db/migrations/0009_topics_and_reply_presets.sql` with the direct connection if they are not applied yet. Do not apply them from the app. `0006_request_stage.sql` keeps the quotation, invoice, and receipt on one request. `0007_stage_titles.sql` is the title update for that same request. `0008_request_statuses.sql` keeps the statuses 待處理, 已入機, and 已完成. `0009_topics_and_reply_presets.sql` adds 搵管理處 and 買保險, and stores shared admin reply presets. After this change is merged, apply `0009_topics_and_reply_presets.sql` to the Goodnote Neon database only, not to any other project.
 4. Set the first admin password with `scripts/set-admin-password.ts` against the hosted database, using `DATABASE_URL_UNPOOLED` and `ADMIN_EMAIL=alvis@alvis.hk`. Until that hash exists, the admin login will say the password has not been set.
-5. Run `scripts/configure-storage-cors.mjs` with `STORAGE_CORS_ORIGINS` set to the production origin (and preview origins, if uploads should work there).
-6. Deploy. File bytes upload from the browser to the private bucket with a short-lived presigned URL, so phone photos are not limited by the platform request-body size. Downloads use a separate signed URL that expires after two hours.
+5. Deploy. The browser posts each file to this app in chunks that stay under the platform request-body limit (commonly 4.5MB). The server writes the finished object to the private bucket. A file can still be 20MB, and one submission can still include 8 files. Downloads use a signed URL that expires after two hours. Saving a file does not require bucket CORS.
 
 There is no emailed forgot-password flow. Password resets are done by someone who can already sign in as admin, or with the script above for the first admin password.
 
@@ -121,7 +113,7 @@ There is no emailed forgot-password flow. Password resets are done by someone wh
 - Admins are rows in `admin_allowlist` with a password hash. The session stores the email. It does not trust a profile field as a permission. Public self-signup is closed.
 - Login names are unique. Email on a client is optional contact information and is not the client login.
 - The database role can read every row. Only server code holds `DATABASE_URL`. Status values, stage changes, the timeline, attachment scope, and in-app notification rows are still enforced by triggers. An admin can move a request between any of the three statuses at every stage. A stage only moves one step forward, on the same request. Deleting the request cascades to its messages, attachments, and notifications, and keeps a later document that only pointed at it. Deleting a client cascades to that client's sessions, requests, messages, attachments, and notifications. No extra migration is required for client deletion.
-- Object storage credentials stay on the server. The bucket is private. Upload URLs last 10 minutes and are limited to one object key. The server checks size (20MB) and MIME type again before it stores the attachment row. Deleting a request, or deleting the client who owns it, also deletes those objects from the bucket through the same request-file cleanup.
+- Object storage credentials stay on the server. The bucket is private. The browser does not upload to the storage host. It posts chunks to `/api/uploads` with a short-lived grant for one object key. The server checks the session, the grant, the size (20MB), and the MIME type again before it stores the object and the attachment row. Deleting a request, or deleting the client who owns it, also deletes those objects, including unfinished chunks, from the bucket.
 - Session tokens are random. The database stores only an HMAC of the token, keyed with `SESSION_SECRET`. Password columns store scrypt hashes, never plaintext.
 
 Some browsers cap how long they keep a cookie (often about 400 days). The server still accepts a presented session after that span; it does not apply its own timeout. Visiting the app refreshes the cookie's browser lifetime without changing the session.
