@@ -1,21 +1,23 @@
-import { topicLabel, type TopicId } from "@/lib/domain";
+import { isTopicId, topicLabel, type TopicId } from "@/lib/domain";
 
 /**
  * `topic` is the document the request started as, and it stays fixed.
  * The 事項 filter uses that topic. `stage` is the current step on the
  * same request. Issuing an invoice and confirming payment are separate
  * stages, so a quotation and a request that started as an invoice share
- * the invoice title.
+ * the invoice title. 搵管理處 and 買保險 stay on that title, the same as 其他.
  */
 export type StageId = TopicId;
 
 export const QUOTE_TITLE = "出報價單";
 export const INVOICE_TITLE = "出發票";
 export const RECEIPT_STAGE_TITLE = "已收錢，請出收據";
+export const MANAGEMENT_TITLE = "搵管理處";
+export const INSURANCE_TITLE = "買保險";
 export const OTHER_TITLE = "其他";
 
 export function isStageId(value: string): value is StageId {
-  return value === "quote" || value === "invoice" || value === "receipt" || value === "other";
+  return isTopicId(value);
 }
 
 export function isLegalStage(topic: TopicId, stage: StageId): boolean {
@@ -30,6 +32,8 @@ export function requestTitle(topic: TopicId, stage: StageId): string {
   if ((topic === "quote" || topic === "invoice" || topic === "receipt") && stage === "receipt") {
     return RECEIPT_STAGE_TITLE;
   }
+  if (topic === "management" && stage === "management") return MANAGEMENT_TITLE;
+  if (topic === "insurance" && stage === "insurance") return INSURANCE_TITLE;
   if (topic === "other" && stage === "other") return OTHER_TITLE;
   return topicLabel(topic);
 }

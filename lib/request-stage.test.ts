@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { topicLabel, type TopicId } from "./domain";
+import { TOPICS, topicLabel, type TopicId } from "./domain";
 import {
+  INSURANCE_TITLE,
   INVOICE_TITLE,
+  MANAGEMENT_TITLE,
   OTHER_TITLE,
   QUOTE_TITLE,
   RECEIPT_STAGE_TITLE,
@@ -19,8 +21,8 @@ import {
   type StageId,
 } from "./request-stage";
 
-const topics: TopicId[] = ["quote", "invoice", "receipt", "other"];
-const stages: StageId[] = ["quote", "invoice", "receipt", "other"];
+const topics: TopicId[] = TOPICS.map((topic) => topic.id);
+const stages: StageId[] = topics;
 
 test("a quotation, its invoice, and its paid receipt use the agreed titles", () => {
   assert.equal(requestTitle("quote", "quote"), QUOTE_TITLE);
@@ -35,9 +37,15 @@ test("a quotation, its invoice, and its paid receipt use the agreed titles", () 
   assert.equal(requestTitle("receipt", "receipt"), "已收錢，請出收據");
   assert.equal(requestTitle("other", "other"), OTHER_TITLE);
   assert.equal(requestTitle("other", "other"), "其他");
+  assert.equal(requestTitle("management", "management"), MANAGEMENT_TITLE);
+  assert.equal(requestTitle("management", "management"), "搵管理處");
+  assert.equal(requestTitle("insurance", "insurance"), INSURANCE_TITLE);
+  assert.equal(requestTitle("insurance", "insurance"), "買保險");
   assert.equal(topicLabel("quote"), "出報價單");
   assert.equal(topicLabel("invoice"), "出發票");
   assert.equal(topicLabel("receipt"), "出收據");
+  assert.equal(topicLabel("management"), "搵管理處");
+  assert.equal(topicLabel("insurance"), "買保險");
   assert.equal(topicLabel("other"), "其他");
 });
 
@@ -49,6 +57,10 @@ test("stage moves one step forward and does not skip or go back", () => {
   assert.equal(nextRequestStage("invoice", "receipt"), null);
   assert.equal(nextRequestStage("receipt", "receipt"), null);
   assert.equal(nextRequestStage("other", "other"), null);
+  assert.equal(nextRequestStage("management", "management"), null);
+  assert.equal(nextRequestStage("insurance", "insurance"), null);
+  assert.equal(nextRequestStage("management", "invoice"), null);
+  assert.equal(nextRequestStage("insurance", "receipt"), null);
 
   assert.equal(canAdvanceTo("quote", "quote", "invoice"), true);
   assert.equal(canAdvanceTo("quote", "invoice", "receipt"), true);
@@ -59,7 +71,18 @@ test("stage moves one step forward and does not skip or go back", () => {
   assert.equal(canAdvanceTo("invoice", "receipt", "invoice"), false);
   assert.equal(canAdvanceTo("receipt", "receipt", "invoice"), false);
   assert.equal(canAdvanceTo("other", "other", "invoice"), false);
+  assert.equal(canAdvanceTo("management", "management", "invoice"), false);
+  assert.equal(canAdvanceTo("insurance", "insurance", "receipt"), false);
   assert.equal(canAdvanceTo("invoice", "quote", "receipt"), false);
+
+  const advances: string[] = [];
+  for (const topic of topics) {
+    for (const stage of stages) {
+      const next = nextRequestStage(topic, stage);
+      if (next) advances.push(`${topic}:${stage}->${next}`);
+    }
+  }
+  assert.deepEqual(advances, ["quote:quote->invoice", "quote:invoice->receipt", "invoice:invoice->receipt"]);
 
   for (const topic of topics) {
     for (const stage of stages) {
@@ -83,6 +106,8 @@ test("the timeline and prompts use the same stage titles", () => {
   assert.equal(stageAdvanceLabel("invoice", "receipt"), null);
   assert.equal(stageAdvanceLabel("receipt", "receipt"), null);
   assert.equal(stageAdvanceLabel("other", "other"), null);
+  assert.equal(stageAdvanceLabel("management", "management"), null);
+  assert.equal(stageAdvanceLabel("insurance", "insurance"), null);
   assert.match(stageAdvanceNote(), /不會另開一則/);
   assert.match(stageAdvanceNote(), /待處理/);
   assert.match(stageAdvancedNotice(), /已進入下一階段/);
@@ -97,6 +122,8 @@ test("the timeline and prompts use the same stage titles", () => {
   assert.equal(adminStagePrompt("甲工程公司", "invoice", "receipt"), "你可以為甲工程公司出收據。");
   assert.equal(adminStagePrompt("甲工程公司", "receipt", "receipt"), "你可以為甲工程公司出收據。");
   assert.equal(adminStagePrompt("甲工程公司", "other", "other"), null);
+  assert.equal(adminStagePrompt("甲工程公司", "management", "management"), null);
+  assert.equal(adminStagePrompt("甲工程公司", "insurance", "insurance"), null);
   assert.equal(adminStagePrompt("甲工程公司", "invoice", "quote"), null);
 
   for (const stage of ["quote", "invoice"] as const) {

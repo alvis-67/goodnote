@@ -5,13 +5,14 @@ import { cache } from "react";
 import { clientCanAccess } from "@/lib/auth/access";
 import { currentClient, requireAdmin } from "@/lib/auth";
 import type { ClientRow, InboxRow, MessageRow, RequestRow } from "@/lib/database.types";
-import { sql } from "@/lib/db";
+import { dbErrorCode, sql } from "@/lib/db";
 import type { ChainLink } from "@/lib/document-chain";
 import type { StatusId, TopicId } from "@/lib/domain";
 import { isStatusId, isTopicId } from "@/lib/domain";
 import { isLegalStage, isStageId } from "@/lib/request-stage";
 import { hasDatabaseEnv, isDeskReady } from "@/lib/env";
 import { asBool, asIso, asText } from "@/lib/rows";
+import { BUILTIN_REPLY_PRESET, type ReplyPresetRecord } from "@/lib/reply-presets";
 import { isUuid } from "@/lib/tokens";
 import { displayWorkLocation } from "@/lib/work-location";
 
@@ -385,6 +386,27 @@ function adminClientFrom(row: Record<string, unknown>): ClientRow {
     created_at: asIso(row.created_at),
     updated_at: asIso(row.updated_at),
   };
+}
+
+export async function listReplyPresets(): Promise<ReplyPresetRecord[]> {
+  if (!isDeskReady()) return [];
+  await requireAdmin();
+  try {
+    const rows = await sql()`
+      select id, body
+      from reply_presets
+      order by created_at asc, id asc
+    `;
+    return rows.flatMap((row) => {
+      const id = String(row.id ?? "");
+      const body = asText(row.body) ?? "";
+      if (!isUuid(id) || !body.trim() || body === BUILTIN_REPLY_PRESET) return [];
+      return [{ id, body }];
+    });
+  } catch (error) {
+    console.error("reply preset list failed", dbErrorCode(error));
+    return [];
+  }
 }
 
 export async function countAdminUnread(): Promise<number> {

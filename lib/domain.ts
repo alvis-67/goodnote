@@ -2,6 +2,8 @@ export const TOPICS = [
   { id: "quote", label: "出報價單", hint: "需要一份報價" },
   { id: "invoice", label: "出發票", hint: "需要開發票" },
   { id: "receipt", label: "出收據", hint: "需要開收據" },
+  { id: "management", label: "搵管理處", hint: "需要搵管理處" },
+  { id: "insurance", label: "買保險", hint: "需要買保險" },
   { id: "other", label: "其他", hint: "其他行政事項" },
 ] as const;
 
@@ -18,6 +20,12 @@ export const DELETE_CONFIRM_VALUE = "yes";
 
 export function isTopicId(value: string): value is TopicId {
   return TOPICS.some((topic) => topic.id === value);
+}
+
+/** The 事項 filter matches the topic the request started as. An empty value means every topic. */
+export function filterByTopic<T extends { topic: TopicId }>(rows: readonly T[], topic: string): readonly T[] {
+  if (!isTopicId(topic)) return rows;
+  return rows.filter((row) => row.topic === topic);
 }
 
 export function isStatusId(value: string): value is StatusId {

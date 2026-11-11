@@ -169,7 +169,8 @@ test("one job is one row, titled with the current stage", () => {
   assert.match(items[0] ?? "", /九龍灣地盤/);
   assert.match(items[0] ?? "", /待處理/);
   assert.match(items[0] ?? "", new RegExp(`href="${clientRequestPath(quoteId)}"`));
-  assert.doesNotMatch(markup, /開出發票|開出收據|出收據/);
+  assert.doesNotMatch(items[0] ?? "", /出收據/);
+  assert.doesNotMatch(markup, /開出發票|開出收據/);
 
   const legacy = html(
     createElement(ClientRequestList, {

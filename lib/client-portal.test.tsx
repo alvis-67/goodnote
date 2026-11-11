@@ -9,6 +9,7 @@ import { ClientRequestList } from "../components/client-request-list";
 import { WorkLocation } from "../components/work-location";
 import { clientListHref, navigationAfterCreate, showNewRequest } from "./client-nav";
 import type { RequestRow } from "./database.types";
+import { TOPICS } from "./domain";
 import { clientHomePath, clientRequestPath } from "./paths";
 import { displayWorkLocation, parseWorkLocation } from "./work-location";
 
@@ -116,6 +117,8 @@ test("the request list shows each request's work location", () => {
   );
   const items = html.split("<li").slice(1);
   assert.equal(items.length, 2);
+  const options = [...html.matchAll(/<option\b[^>]*>([^<]*)<\/option>/g)].map((match) => match[1]);
+  assert.deepEqual(options, ["全部", ...TOPICS.map((topic) => topic.label)]);
   assert.match(items[0] ?? "", /出報價單/);
   assert.match(items[0] ?? "", /工作地點/);
   assert.match(items[0] ?? "", /九龍灣地盤/);
@@ -150,7 +153,7 @@ test("the client request page has no follow-up composer", () => {
   assert.match(create, /<Composer audience="client" mode="create" \/>/);
   assert.match(admin, /<h3 className="font-semibold">回覆<\/h3>/);
   assert.match(admin, /可以附上已完成的報價、發票或收據/);
-  assert.match(admin, /<Composer audience="admin" mode="reply" requestId=\{request\.id\} \/>/);
+  assert.match(admin, /<Composer audience="admin" mode="reply" requestId=\{request\.id\} presets=\{presets\} \/>/);
 
   assert.doesNotMatch(actions, /prepareClientReply/);
   assert.match(actions, /prepareClientRequest/);
