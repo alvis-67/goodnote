@@ -8,7 +8,6 @@ import { dbErrorCode, sql } from "@/lib/db";
 import { isTopicId } from "@/lib/domain";
 import { hasDatabaseEnv, hasStorageEnv } from "@/lib/env";
 import type { FileMeta } from "@/lib/files";
-import { MAX_FILES } from "@/lib/files";
 import { clientHomePath, clientRequestPath } from "@/lib/paths";
 import { isUuid } from "@/lib/tokens";
 import { finalizeUploads, prepareUploads } from "@/lib/uploads";
@@ -74,53 +73,6 @@ export async function prepareClientRequest(input: {
 
   revalidatePath(redirectTo);
   revalidatePath(clientHomePath);
-  return { ok: true, redirectTo, uploads: prepared.uploads };
-}
-
-export async function prepareClientReply(input: {
-  requestId: string;
-  body: string;
-  files: FileMeta[];
-}): Promise<PrepareSuccess | ActionFailure> {
-  const scope = await clientScope();
-  if (!scope.ok) return scope;
-  if (!isUuid(input.requestId)) return { ok: false, error: "找不到這個請求。" };
-  const body = messageBody(input.body);
-  if (!body.ok) return body;
-  const files = normalizeFiles(input.files ?? []);
-  if (!Array.isArray(files)) return files;
-  if (!body.value && files.length === 0) {
-    return { ok: false, error: "請填寫內容，或上載至少一個檔案。" };
-  }
-  if (files.length > MAX_FILES) return { ok: false, error: `最多上載 ${MAX_FILES} 個檔案。` };
-  if (files.length > 0 && !hasStorageEnv()) return { ok: false, error: "系統尚未完成設定。" };
-
-  const rows = await sql()`
-    select id, client_id
-    from requests
-    where id = ${input.requestId}
-      and client_id = ${scope.context.client.id}
-    limit 1
-  `;
-  const request = rows[0];
-  if (!request) return { ok: false, error: "找不到這個請求。" };
-
-  const message = await insertMessage({
-    requestId: String(request.id),
-    authorRole: "client",
-    body: body.value,
-  });
-  const redirectTo = clientRequestPath(String(request.id));
-  if (!message.ok) return message;
-
-  const prepared = await prepareUploads({
-    clientId: String(request.client_id),
-    requestId: String(request.id),
-    messageId: message.id,
-    files,
-  });
-  if (!prepared.ok) return { ...prepared, redirectTo };
-  revalidatePath(redirectTo);
   return { ok: true, redirectTo, uploads: prepared.uploads };
 }
 

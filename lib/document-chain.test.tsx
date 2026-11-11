@@ -316,7 +316,8 @@ test("new stage changes do not create a linked request", () => {
   assert.doesNotMatch(desk, /\/next|開出發票|開出收據/);
   assert.doesNotMatch(chain, /\/next|開出發票|開出收據|startHref/);
   assert.doesNotMatch(composer, /prepareLinkedRequest|prepareAdminLinkedReceipt|mode === "follow"|\/next/);
-  assert.match(composer, /mode: "create" \| "reply"/);
+  assert.match(composer, /audience: "client"; mode: "create"/);
+  assert.match(composer, /audience: "admin"; mode: "reply"/);
   assert.match(adminPage, new RegExp(`hrefFor=\{${"adminRequestPath"}`));
   assert.match(desk, /adminRequestPath/);
 });
