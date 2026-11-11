@@ -21,7 +21,9 @@ import {
   settleOptimistic,
   takeMutationFailure,
   toCachedAdminRow,
+  toCachedClientDetail,
   toCachedClientRequest,
+  VIEW_STORAGE_KEY,
   type CachedAdminDetail,
   type CachedClientDetail,
   type CachedClientRequest,
@@ -342,4 +344,62 @@ test("request pages load their queries together and the thread does not wait in 
   assert.match(requestLoader, /\(c\.password_hash is not null\) as has_password/);
   assert.doesNotMatch(inbox, /admin_unread = true/);
   assert.doesNotMatch(requestLoader, /password_hash,/);
+});
+
+test("a cached request view does not keep a storage path or a remote file url", () => {
+  const storage = memoryViewStorage();
+  const fileId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const detail = detailFor(clientRequest(requestA, clientA), "請看相片");
+  const messageId = detail.messages[0]?.id ?? "";
+  const file = {
+    id: fileId,
+    message_id: messageId,
+    file_name: "1.png",
+    mime_type: "image/png",
+    size_bytes: 346297,
+    storage_path: "secret/path",
+    url: "https://storage.example/object",
+  };
+  rememberClientDetail(storage, scopeA, { ...detail, files: [file] });
+  const stored = storage.get(VIEW_STORAGE_KEY) ?? "";
+  assert.equal(stored.includes("storage_path"), false);
+  assert.equal(stored.includes("storage.example"), false);
+  assert.equal(stored.includes("secret/path"), false);
+
+  const cached = toCachedClientDetail(detail.request, {
+    messages: detail.messages,
+    attachments: [file],
+  });
+  assert.deepEqual(cached.files[0], {
+    id: fileId,
+    message_id: messageId,
+    file_name: "1.png",
+    mime_type: "image/png",
+    size_bytes: 346297,
+  });
+
+  const polluted = JSON.parse(stored) as {
+    clientDetails: Record<string, { files: Array<Record<string, unknown>> }>;
+  };
+  const kept = polluted.clientDetails[requestA]?.files[0];
+  assert.ok(kept);
+  kept.storage_path = "secret/path";
+  kept.url = "https://storage.example/object";
+  storage.set(VIEW_STORAGE_KEY, JSON.stringify(polluted));
+
+  const painted = paintCachedView(storage, `/client/requests/${requestA}`, "", "client");
+  assert.equal(painted.kind, "client-detail");
+  if (painted.kind !== "client-detail") return;
+  assert.deepEqual(painted.detail.files[0], {
+    id: fileId,
+    message_id: messageId,
+    file_name: "1.png",
+    mime_type: "image/png",
+    size_bytes: 346297,
+  });
+  const html = renderToStaticMarkup(createElement(CachedPaintView, { role: "client", paint: painted }));
+  assert.match(html, new RegExp(`src="/api/files/${fileId}"`));
+  assert.match(html, new RegExp(`href="/api/files/${fileId}"`));
+  assert.match(html, /1\.png/);
+  assert.doesNotMatch(html, /storage\.example|storage_path|secret\/path|https?:\/\//);
 });

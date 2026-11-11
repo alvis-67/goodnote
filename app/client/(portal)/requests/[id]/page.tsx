@@ -10,10 +10,9 @@ import { MarkClientRead } from "@/components/mark-read";
 import { RememberClientDetail } from "@/components/remember-view";
 import { Thread } from "@/components/thread";
 import { getClientRequest, loadClientRequestChain, loadClientThread } from "@/lib/data";
-import { hasStorageEnv, isDeskReady } from "@/lib/env";
+import { isDeskReady } from "@/lib/env";
 import { clientRequestPath } from "@/lib/paths";
 import { stageAdvanceError, stageAdvanceLabel, stageAdvanceNote, stageAdvancedNotice } from "@/lib/request-stage";
-import { signAttachmentPaths } from "@/lib/uploads";
 import { toCachedClientDetail, toCachedClientRequest } from "@/lib/view-cache";
 
 export const metadata: Metadata = { title: "請求" };
@@ -33,12 +32,6 @@ export default async function ClientRequestPage({
     loadClientThread(id),
   ]);
   if (!request) notFound();
-  const urls = hasStorageEnv()
-    ? await signAttachmentPaths(
-        thread.attachments.map((file) => file.storage_path),
-        { clientId: request.client_id },
-      )
-    : new Map<string, string>();
   const advanceLabel = stageAdvanceLabel(request.topic, request.stage);
 
   const cachedRequest = toCachedClientRequest({ ...request, parent: chain.parent, child: chain.child });
@@ -86,7 +79,7 @@ export default async function ClientRequestPage({
       ) : null}
       </LiveRequest>
       <div className="mt-5">
-        <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} />
+        <Thread messages={thread.messages} attachments={thread.attachments} />
       </div>
     </main>
   );

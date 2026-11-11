@@ -1,4 +1,4 @@
-// Uploads are saved by the app server. This policy is not required for that path.
+// Uploads and downloads go through the app server. This policy is not required for that path.
 import { PutBucketCorsCommand, S3Client } from "@aws-sdk/client-s3";
 
 const bucket = "request-files";

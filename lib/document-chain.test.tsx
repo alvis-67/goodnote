@@ -204,7 +204,6 @@ test("one job is one row, titled with the current stage", () => {
 test("the timeline keeps messages and files and hides status and stage changes", () => {
   const markup = html(
     createElement(Thread, {
-      urls: new Map(),
       attachments: [
         {
           id: "file-1",
@@ -212,7 +211,6 @@ test("the timeline keeps messages and files and hides status and stage changes",
           file_name: "報價.pdf",
           mime_type: "application/pdf",
           size_bytes: 1200,
-          storage_path: "kept",
         },
       ],
       messages: [
@@ -246,7 +244,6 @@ test("the timeline keeps messages and files and hides status and stage changes",
   assert.doesNotMatch(markup, /狀態由/);
   const hiddenOnly = html(
     createElement(Thread, {
-      urls: new Map(),
       attachments: [],
       messages: [
         message({

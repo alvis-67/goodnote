@@ -18,7 +18,7 @@ import { Thread } from "@/components/thread";
 import { WorkLocation } from "@/components/work-location";
 import { getAdminRequest, listReplyPresets, loadAdminRequestChain, loadAdminThread } from "@/lib/data";
 import { formatDateTime } from "@/lib/format";
-import { hasStorageEnv, isDeskReady } from "@/lib/env";
+import { isDeskReady } from "@/lib/env";
 import { adminRequestPath } from "@/lib/paths";
 import {
   adminStagePrompt,
@@ -28,7 +28,6 @@ import {
   stageAdvanceNote,
   stageAdvancedNotice,
 } from "@/lib/request-stage";
-import { signAttachmentPaths } from "@/lib/uploads";
 import { toCachedClientDetail, toCachedClientRequest } from "@/lib/view-cache";
 
 export const metadata: Metadata = { title: "請求" };
@@ -50,9 +49,6 @@ export default async function AdminRequestPage({
   ]);
   if (!loaded) notFound();
   const { request, client } = loaded;
-  const urls = hasStorageEnv()
-    ? await signAttachmentPaths(thread.attachments.map((file) => file.storage_path))
-    : new Map<string, string>();
   const advanceLabel = stageAdvanceLabel(request.topic, request.stage);
   const stagePrompt = adminStagePrompt(client.company_name, request.topic, request.stage);
   const cachedRequest = toCachedClientRequest({ ...request, parent: chain.parent, child: chain.child });
@@ -153,7 +149,7 @@ export default async function AdminRequestPage({
         </div>
         </LiveRequest>
         <div className="mt-5">
-          <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} />
+          <Thread messages={thread.messages} attachments={thread.attachments} />
         </div>
         <div className="mt-6 rounded-3xl bg-desk-card p-4">
           <h3 className="font-semibold">回覆</h3>
