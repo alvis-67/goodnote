@@ -62,7 +62,7 @@ export function stageAdvanceNote(): string {
 }
 
 export function stageAdvancedNotice(): string {
-  return "已進入下一階段。狀態已回到待處理，並寫進時間線。";
+  return "已進入下一階段。狀態已回到待處理。";
 }
 
 export function stageAdvanceError(): string {

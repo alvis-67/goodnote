@@ -129,3 +129,31 @@ test("the request list shows each request's work location", () => {
   assert.match(detail, /location=\{request\.work_location\}/);
   assert.match(admin, /<WorkLocation location=\{request\.work_location\} \/>/);
 });
+
+test("the client request page has no follow-up composer", () => {
+  const detail = readFileSync(new URL("../app/client/(portal)/requests/[id]/page.tsx", import.meta.url), "utf8");
+  const create = readFileSync(new URL("../app/client/(portal)/new/page.tsx", import.meta.url), "utf8");
+  const admin = readFileSync(new URL("../app/admin/(desk)/requests/[id]/page.tsx", import.meta.url), "utf8");
+  const actions = readFileSync(new URL("./actions/client.ts", import.meta.url), "utf8");
+  const composer = readFileSync(new URL("../components/composer.tsx", import.meta.url), "utf8");
+
+  assert.match(detail, /<Thread /);
+  assert.match(detail, /AdvanceStage/);
+  assert.match(detail, /DocumentChain/);
+  assert.match(detail, /ClientRequestHeading/);
+  assert.doesNotMatch(detail, /補充或回覆/);
+  assert.doesNotMatch(detail, /Composer/);
+  assert.doesNotMatch(detail, /prepareClientReply/);
+
+  assert.match(create, /<Composer audience="client" mode="create" \/>/);
+  assert.match(admin, /<h3 className="font-semibold">回覆<\/h3>/);
+  assert.match(admin, /可以附上已完成的報價、發票或收據/);
+  assert.match(admin, /<Composer audience="admin" mode="reply" requestId=\{request\.id\} \/>/);
+
+  assert.doesNotMatch(actions, /prepareClientReply/);
+  assert.match(actions, /prepareClientRequest/);
+  assert.match(actions, /finalizeClientUploads/);
+  assert.doesNotMatch(composer, /prepareClientReply/);
+  assert.match(composer, /prepareAdminReply/);
+  assert.match(composer, /mode === "reply" \? "回覆客戶" : "提交請求"/);
+});

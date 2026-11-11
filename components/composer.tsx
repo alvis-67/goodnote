@@ -4,24 +4,20 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { finalizeAdminUploads, prepareAdminReply } from "@/lib/actions/admin";
-import { finalizeClientUploads, prepareClientReply, prepareClientRequest } from "@/lib/actions/client";
+import { finalizeClientUploads, prepareClientRequest } from "@/lib/actions/client";
 import { navigationAfterCreate } from "@/lib/client-nav";
 import { TOPICS, type TopicId } from "@/lib/domain";
 import { formatBytes } from "@/lib/format";
 import { acceptAttribute, MAX_FILES, validateFiles, type FileMeta } from "@/lib/files";
 import { MAX_WORK_LOCATION_LENGTH, parseWorkLocation } from "@/lib/work-location";
 
-type Audience = "client" | "admin";
+type ComposerProps =
+  | { audience: "client"; mode: "create" }
+  | { audience: "admin"; mode: "reply"; requestId: string };
 
-export function Composer({
-  audience,
-  mode,
-  requestId,
-}: {
-  audience: Audience;
-  mode: "create" | "reply";
-  requestId?: string;
-}) {
+export function Composer(props: ComposerProps) {
+  const { audience, mode } = props;
+  const requestId = props.audience === "admin" ? props.requestId : undefined;
   const router = useRouter();
   const [topic, setTopic] = useState<TopicId | null>(null);
   const [workLocation, setWorkLocation] = useState("");
@@ -73,14 +69,12 @@ export function Composer({
     const prepared =
       audience === "admin"
         ? await prepareAdminReply({ requestId: requestId ?? "", body, files: metas })
-        : mode === "create"
-          ? await prepareClientRequest({
-              topic: topic ?? "",
-              body,
-              files: metas,
-              workLocation: workLocationValue,
-            })
-          : await prepareClientReply({ requestId: requestId ?? "", body, files: metas });
+        : await prepareClientRequest({
+            topic: topic ?? "",
+            body,
+            files: metas,
+            workLocation: workLocationValue,
+          });
 
     if (!prepared.ok) {
       setPending(false);
@@ -142,7 +136,11 @@ export function Composer({
     if (failed) {
       setPending(false);
       setProgress(null);
-      setError("有檔案未能上載。文字已經送出，你可以開啟請求再補上檔案。");
+      setError(
+        audience === "admin"
+          ? "有檔案未能上載。文字已經送出，你可以開啟請求再補上檔案。"
+          : "有檔案未能上載。文字已經送出。",
+      );
       setContinueHref(prepared.redirectTo);
       return;
     }
@@ -274,7 +272,7 @@ export function Composer({
         disabled={pending}
         className="min-h-12 rounded-2xl bg-stamp px-4 py-3 text-base font-semibold text-white disabled:opacity-60"
       >
-        {pending ? progress ?? "正在送出…" : mode === "reply" ? (audience === "admin" ? "回覆客戶" : "送出") : "提交請求"}
+        {pending ? progress ?? "正在送出…" : mode === "reply" ? "回覆客戶" : "提交請求"}
       </button>
     </form>
   );

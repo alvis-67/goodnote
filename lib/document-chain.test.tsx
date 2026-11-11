@@ -200,10 +200,9 @@ test("one job is one row, titled with the current stage", () => {
   assert.doesNotMatch(legacy, />開出發票<|>開出收據</);
 });
 
-test("the timeline shows the stage change and the status change on the same request", () => {
+test("the timeline keeps messages and files and hides status and stage changes", () => {
   const markup = html(
     createElement(Thread, {
-      topic: "quote",
       urls: new Map(),
       attachments: [
         {
@@ -241,25 +240,33 @@ test("the timeline shows the stage change and the status change on the same requ
   );
   assert.match(markup, /請報價泥水工程/);
   assert.match(markup, /報價\.pdf/);
-  assert.match(markup, /舊時間線原文/);
-  assert.doesNotMatch(markup, /階段由出報價單改為出發票/);
-  assert.match(markup, /狀態由已出單改為待處理/);
-  const stageOnly = html(
+  assert.doesNotMatch(markup, /舊時間線原文/);
+  assert.doesNotMatch(markup, /階段由/);
+  assert.doesNotMatch(markup, /狀態由/);
+  const hiddenOnly = html(
     createElement(Thread, {
-      topic: "invoice",
       urls: new Map(),
       attachments: [],
       messages: [
         message({
           id: "stage-2",
           kind: "stage_change",
+          body: "階段由出發票改為已收錢，請出收據",
           stage_from: "invoice",
           stage_to: "receipt",
+        }),
+        message({
+          id: "status-2",
+          kind: "status_change",
+          author_role: "system",
+          status_from: "pending",
+          status_to: "recorded",
         }),
       ],
     }),
   );
-  assert.match(stageOnly, /階段由出發票改為已收錢，請出收據/);
+  assert.match(hiddenOnly, /這條紀錄還沒有訊息/);
+  assert.doesNotMatch(hiddenOnly, /階段由|狀態由/);
 });
 
 test("new stage changes do not create a linked request", () => {
@@ -307,7 +314,8 @@ test("new stage changes do not create a linked request", () => {
   assert.match(adminPage, /<StatusMenu/);
   assert.match(adminPage, /setRequestStatus/);
   assert.match(adminPage, /query\.notice === "status"/);
-  assert.match(adminPage, /狀態已更新，並寫進時間線/);
+  assert.match(adminPage, /狀態已更新。/);
+  assert.doesNotMatch(adminPage, /寫進時間線/);
   assert.match(adminPage, /<DocumentChain/);
   assert.doesNotMatch(adminPage, /\/next|開出發票|開出收據|InvoiceReceiptPrompt|prepareAdminLinkedReceipt/);
 
@@ -316,7 +324,8 @@ test("new stage changes do not create a linked request", () => {
   assert.doesNotMatch(desk, /\/next|開出發票|開出收據/);
   assert.doesNotMatch(chain, /\/next|開出發票|開出收據|startHref/);
   assert.doesNotMatch(composer, /prepareLinkedRequest|prepareAdminLinkedReceipt|mode === "follow"|\/next/);
-  assert.match(composer, /mode: "create" \| "reply"/);
+  assert.match(composer, /audience: "client"; mode: "create"/);
+  assert.match(composer, /audience: "admin"; mode: "reply"/);
   assert.match(adminPage, new RegExp(`hrefFor=\{${"adminRequestPath"}`));
   assert.match(desk, /adminRequestPath/);
 });

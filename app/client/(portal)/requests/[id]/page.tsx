@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 import { advanceClientRequestStage } from "@/lib/actions/stage";
 import { AdvanceStage } from "@/components/advance-stage";
 import { ClientRequestHeading } from "@/components/client-request-heading";
-import { Composer } from "@/components/composer";
 import { DocumentChain } from "@/components/document-chain";
 import { MarkClientRead } from "@/components/mark-read";
 import { Thread } from "@/components/thread";
@@ -66,14 +65,8 @@ export default async function ClientRequestPage({
         </section>
       ) : null}
       <div className="mt-5">
-        <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} topic={request.topic} />
+        <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} />
       </div>
-      <section className="mt-6 rounded-3xl border border-line bg-card p-4">
-        <h2 className="text-base font-semibold">補充或回覆</h2>
-        <div className="mt-3">
-          <Composer audience="client" mode="reply" requestId={request.id} />
-        </div>
-      </section>
     </main>
   );
 }

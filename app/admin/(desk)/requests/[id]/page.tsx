@@ -82,7 +82,7 @@ export default async function AdminRequestPage({
           <StatusMenu requestId={request.id} status={request.status} action={setRequestStatus} />
           {query.notice === "status" ? (
             <p role="status" className="mt-2 text-ok">
-              狀態已更新，並寫進時間線。
+              狀態已更新。
             </p>
           ) : null}
           {query.notice === "stage" ? (
@@ -117,7 +117,7 @@ export default async function AdminRequestPage({
           </div>
         </div>
         <div className="mt-5">
-          <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} topic={request.topic} />
+          <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} />
         </div>
         <div className="mt-6 rounded-3xl bg-desk-card p-4">
           <h3 className="font-semibold">回覆</h3>
