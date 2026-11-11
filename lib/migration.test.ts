@@ -14,6 +14,7 @@ const chainSql = readFileSync(new URL("../db/migrations/0005_document_chain.sql"
 const stageSql = readFileSync(new URL("../db/migrations/0006_request_stage.sql", import.meta.url), "utf8");
 const titleSql = readFileSync(new URL("../db/migrations/0007_stage_titles.sql", import.meta.url), "utf8");
 const statusSetSql = readFileSync(new URL("../db/migrations/0008_request_statuses.sql", import.meta.url), "utf8");
+const topicSql = readFileSync(new URL("../db/migrations/0009_topics_and_reply_presets.sql", import.meta.url), "utf8");
 const schemaScript = readFileSync(new URL("../scripts/test-schema.sh", import.meta.url), "utf8");
 const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
@@ -165,6 +166,41 @@ test("stage titles separate the invoice from the paid receipt", () => {
   assert.doesNotMatch(titleSql, /neon_auth\./);
   assert.doesNotMatch(titleSql, /postgres:\/\//i);
   assert.doesNotMatch(titleSql, /password/i);
+});
+
+test("new topics keep the old stage paths and reply presets are shared rows", () => {
+  assert.match(topicSql, /DATABASE_URL_UNPOOLED/);
+  assert.match(topicSql, /0008_request_statuses\.sql/);
+  assert.match(topicSql, /create or replace function private\.set_request_stage/);
+  assert.match(topicSql, /create or replace function private\.enforce_request_update/);
+  assert.match(topicSql, /create or replace function private\.request_stage_title/);
+  assert.match(topicSql, /topic in \('quote', 'invoice', 'receipt', 'management', 'insurance', 'other'\)/);
+  assert.match(topicSql, /stage in \('quote', 'invoice', 'receipt', 'management', 'insurance', 'other'\)/);
+  assert.match(topicSql, /topic = 'management' and stage = 'management'/);
+  assert.match(topicSql, /topic = 'insurance' and stage = 'insurance'/);
+  assert.match(topicSql, /topic = 'other' and stage = 'other'/);
+  assert.match(topicSql, /old\.topic = 'quote' and old\.stage = 'quote' and new\.stage = 'invoice'/);
+  assert.match(topicSql, /old\.topic = 'quote' and old\.stage = 'invoice' and new\.stage = 'receipt'/);
+  assert.match(topicSql, /old\.topic = 'invoice' and old\.stage = 'invoice' and new\.stage = 'receipt'/);
+  assert.match(topicSql, /when topic = 'management' and stage = 'management' then '搵管理處'/);
+  assert.match(topicSql, /when topic = 'insurance' and stage = 'insurance' then '買保險'/);
+  assert.match(topicSql, /when topic = 'other' and stage = 'other' then '其他'/);
+  assert.match(topicSql, /when topic = 'quote' and stage = 'quote' then '出報價單'/);
+  assert.match(topicSql, /when topic = 'receipt' and stage = 'receipt' then '已收錢，請出收據'/);
+  assert.match(topicSql, /create table public\.reply_presets/);
+  assert.match(topicSql, /constraint reply_presets_body_key unique \(body\)/);
+  assert.match(topicSql, /char_length\(body\) between 1 and 4000/);
+  assert.match(topicSql, /new\.status not in \('pending', 'recorded', 'completed'\)/);
+  assert.doesNotMatch(topicSql, /old\.topic = 'quote' and old\.stage = 'quote' and new\.stage = 'receipt'/);
+  assert.doesNotMatch(topicSql, /old\.topic = 'management' and old\.stage = 'management' and new\.stage = 'invoice'/);
+  assert.doesNotMatch(topicSql, /update\s+(public\.)?requests\s+set\s+(topic|stage)/i);
+  assert.doesNotMatch(topicSql, /insert\s+into/i);
+  assert.doesNotMatch(topicSql, /neon_auth\./);
+  assert.doesNotMatch(topicSql, /postgres:\/\//i);
+  assert.doesNotMatch(topicSql, /password/i);
+  assert.match(readme, /0009_topics_and_reply_presets\.sql/);
+  assert.match(readme, /搵管理處/);
+  assert.match(readme, /買保險/);
 });
 
 test("deleting a request cascades to messages, attachments, and notifications", () => {

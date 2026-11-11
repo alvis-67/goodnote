@@ -18,6 +18,11 @@ import { asText } from "@/lib/rows";
 import { isUuid } from "@/lib/tokens";
 import { deleteRequestFiles, finalizeUploads, prepareUploads } from "@/lib/uploads";
 import { insertMessage, messageBody, normalizeFiles, type ActionFailure, type PrepareSuccess } from "@/lib/actions/shared";
+import {
+  BUILTIN_REPLY_PRESET,
+  parseReplyPresetDraft,
+  type SaveReplyPresetResult,
+} from "@/lib/reply-presets";
 import type { MutationResult } from "@/lib/mutation";
 
 export async function createClientAccount(
@@ -192,6 +197,31 @@ export async function deleteClient(formData: FormData): Promise<void> {
   revalidatePath("/admin");
   revalidatePath(clientHomePath);
   redirect(clientsListHref({ notice: "deleted" }));
+}
+
+export async function saveReplyPreset(body: string): Promise<SaveReplyPresetResult> {
+  if (!isDeskReady()) return { ok: false, error: "系統尚未完成設定。" };
+  await requireAdmin();
+  const parsed = parseReplyPresetDraft(body);
+  if (!parsed.ok) return parsed;
+  if (parsed.body === BUILTIN_REPLY_PRESET) return { ok: true, preset: null, builtin: true };
+
+  try {
+    const rows = await sql()`
+      insert into reply_presets (body)
+      values (${parsed.body})
+      on conflict (body) do update set body = reply_presets.body
+      returning id, body
+    `;
+    const id = rows[0]?.id ? String(rows[0].id) : "";
+    const savedBody = typeof rows[0]?.body === "string" ? rows[0].body : "";
+    if (!isUuid(id) || !savedBody) return { ok: false, error: "未能儲存預設回覆。" };
+    return { ok: true, preset: { id, body: savedBody }, builtin: false };
+  } catch (error) {
+    if (isRedirect(error)) throw error;
+    console.error("reply preset save failed", dbErrorCode(error));
+    return { ok: false, error: "未能儲存預設回覆。" };
+  }
 }
 
 export async function prepareAdminReply(input: {

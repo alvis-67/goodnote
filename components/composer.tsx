@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { finalizeAdminUploads, prepareAdminReply } from "@/lib/actions/admin";
+import { finalizeAdminUploads, prepareAdminReply, saveReplyPreset } from "@/lib/actions/admin";
 import { finalizeClientUploads, prepareClientRequest } from "@/lib/actions/client";
 import { InstantLink } from "@/components/instant-link";
+import { ReplyPresetPicker } from "@/components/reply-preset-picker";
 import { useCacheScope } from "@/components/view-cache-provider";
 import { navigationAfterCreate } from "@/lib/client-nav";
 import { TOPICS, type TopicId } from "@/lib/domain";
+import type { ReplyPresetRecord } from "@/lib/reply-presets";
 import { formatBytes } from "@/lib/format";
 import { acceptAttribute, MAX_FILES, validateFiles, type FileMeta } from "@/lib/files";
 import { isUuid } from "@/lib/tokens";
@@ -17,11 +19,12 @@ import { MAX_WORK_LOCATION_LENGTH, parseWorkLocation } from "@/lib/work-location
 
 type ComposerProps =
   | { audience: "client"; mode: "create" }
-  | { audience: "admin"; mode: "reply"; requestId: string };
+  | { audience: "admin"; mode: "reply"; requestId: string; presets?: readonly ReplyPresetRecord[] };
 
 export function Composer(props: ComposerProps) {
   const { audience, mode } = props;
   const requestId = props.audience === "admin" ? props.requestId : undefined;
+  const presets = props.audience === "admin" ? (props.presets ?? []) : [];
   const router = useRouter();
   const scope = useCacheScope();
   const [topic, setTopic] = useState<TopicId | null>(null);
@@ -225,6 +228,10 @@ export function Composer(props: ComposerProps) {
             className="rounded-2xl border border-line bg-white px-3 py-3 font-normal"
           />
         </label>
+      ) : null}
+
+      {mode === "reply" ? (
+        <ReplyPresetPicker presets={presets} body={body} onFill={setBody} savePreset={saveReplyPreset} />
       ) : null}
 
       <label className="flex flex-col gap-2 text-sm font-semibold">

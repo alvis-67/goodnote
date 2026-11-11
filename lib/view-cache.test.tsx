@@ -333,7 +333,10 @@ test("request pages load their queries together and the thread does not wait in 
   const thread = data.slice(data.indexOf("async function loadThreadFor"), data.indexOf("export async function loadClientThread"));
 
   assert.match(clientPage, /Promise\.all\(\[\s*getClientRequest\(id\),\s*loadClientRequestChain\(id\),\s*loadClientThread\(id\),?\s*\]\)/);
-  assert.match(adminPage, /Promise\.all\(\[\s*getAdminRequest\(id\),\s*loadAdminRequestChain\(id\),\s*loadAdminThread\(id\),?\s*\]\)/);
+  assert.match(
+    adminPage,
+    /Promise\.all\(\[\s*getAdminRequest\(id\),\s*loadAdminRequestChain\(id\),\s*loadAdminThread\(id\),\s*listReplyPresets\(\),?\s*\]\)/,
+  );
   assert.match(thread, /Promise\.all\(/);
   assert.match(requestLoader, /join clients c on c\.id = r\.client_id/);
   assert.match(requestLoader, /\(c\.password_hash is not null\) as has_password/);

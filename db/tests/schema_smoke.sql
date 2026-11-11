@@ -843,8 +843,11 @@ select pg_temp.expect(
       and private.request_stage_title('quote', 'receipt') = '已收錢，請出收據'
       and private.request_stage_title('invoice', 'receipt') = '已收錢，請出收據'
       and private.request_stage_title('receipt', 'receipt') = '已收錢，請出收據'
+      and private.request_stage_title('management', 'management') = '搵管理處'
+      and private.request_stage_title('insurance', 'insurance') = '買保險'
       and private.request_stage_title('other', 'other') = '其他'
       and private.request_stage_title('quote', 'other') is null
+      and private.request_stage_title('management', 'insurance') is null
       and private.request_stage_title('receipt', 'invoice') is null),
   'request_stage_title keeps the invoice and the paid receipt apart'
 );
@@ -1170,6 +1173,112 @@ select pg_temp.expect(
   'an other request stays other'
 );
 
+insert into public.requests (id, client_id, topic)
+values (
+  '51515151-5151-4151-8151-515151515151',
+  '11111111-1111-4111-8111-111111111111',
+  'management'
+);
+
+insert into public.requests (id, client_id, topic)
+values (
+  '61616161-6161-4161-8161-616161616161',
+  '11111111-1111-4111-8111-111111111111',
+  'insurance'
+);
+
+select pg_temp.expect(
+  (select topic = 'management'
+      and stage = 'management'
+      and private.request_stage_title(topic, stage) = '搵管理處'
+   from public.requests
+   where id = '51515151-5151-4151-8151-515151515151'),
+  'a management request starts as 搵管理處'
+);
+
+select pg_temp.expect(
+  (select topic = 'insurance'
+      and stage = 'insurance'
+      and private.request_stage_title(topic, stage) = '買保險'
+   from public.requests
+   where id = '61616161-6161-4161-8161-616161616161'),
+  'an insurance request starts as 買保險'
+);
+
+do $$
+begin
+  update public.requests
+  set stage = 'invoice'
+  where id = '51515151-5151-4151-8151-515151515151';
+  raise exception 'FAIL: a management request advanced';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  update public.requests
+  set stage = 'receipt'
+  where id = '61616161-6161-4161-8161-616161616161';
+  raise exception 'FAIL: an insurance request advanced';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+select pg_temp.expect(
+  (select stage = 'management'
+   from public.requests
+   where id = '51515151-5151-4151-8151-515151515151')
+  and (
+    select stage = 'insurance'
+    from public.requests
+    where id = '61616161-6161-4161-8161-616161616161'
+  ),
+  'management and insurance requests stay on their own stage'
+);
+
+do $$
+begin
+  insert into public.requests (client_id, topic, stage)
+  values (
+    '11111111-1111-4111-8111-111111111111',
+    'management',
+    'insurance'
+  );
+  raise exception 'FAIL: a management request started at another stage';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  insert into public.requests (client_id, topic)
+  values ('11111111-1111-4111-8111-111111111111', 'search');
+  raise exception 'FAIL: unknown topic stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
 do $$
 begin
   insert into public.requests (client_id, topic, stage)
@@ -1285,6 +1394,35 @@ select pg_temp.expect(
   'the client has a live session before delete'
 );
 
+insert into public.reply_presets (id, body)
+values ('50505050-5050-4050-8050-505050505050', '請看附件');
+
+do $$
+begin
+  insert into public.reply_presets (body) values ('請看附件');
+  raise exception 'FAIL: duplicate reply preset stored';
+exception
+  when unique_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  insert into public.reply_presets (body) values ('   ');
+  raise exception 'FAIL: blank reply preset stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
 delete from public.clients
 where id = '11111111-1111-4111-8111-111111111111';
 
@@ -1340,6 +1478,13 @@ select pg_temp.expect(
    where token_hash = 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
      and account_type = 'admin'),
   'deleting a client does not remove an admin session'
+);
+select pg_temp.expect(
+  (select count(*) = 1
+   from public.reply_presets
+   where id = '50505050-5050-4050-8050-505050505050'
+     and body = '請看附件'),
+  'deleting a client leaves shared reply presets in place'
 );
 
 delete from public.clients

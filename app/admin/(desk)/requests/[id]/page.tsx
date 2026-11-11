@@ -15,7 +15,7 @@ import { RememberAdminDetail } from "@/components/remember-view";
 import { StatusMenu } from "@/components/status-menu";
 import { Thread } from "@/components/thread";
 import { WorkLocation } from "@/components/work-location";
-import { getAdminRequest, loadAdminRequestChain, loadAdminThread } from "@/lib/data";
+import { getAdminRequest, listReplyPresets, loadAdminRequestChain, loadAdminThread } from "@/lib/data";
 import { formatDateTime } from "@/lib/format";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
 import { adminRequestPath } from "@/lib/paths";
@@ -41,10 +41,11 @@ export default async function AdminRequestPage({
 }) {
   if (!isDeskReady()) return null;
   const [{ id }, query] = await Promise.all([params, searchParams]);
-  const [loaded, chain, thread] = await Promise.all([
+  const [loaded, chain, thread, presets] = await Promise.all([
     getAdminRequest(id),
     loadAdminRequestChain(id),
     loadAdminThread(id),
+    listReplyPresets(),
   ]);
   if (!loaded) notFound();
   const { request, client } = loaded;
@@ -157,7 +158,7 @@ export default async function AdminRequestPage({
           <h3 className="font-semibold">回覆</h3>
           <p className="mt-1 text-sm text-muted">可以附上已完成的報價、發票或收據。</p>
           <div className="mt-3">
-            <Composer audience="admin" mode="reply" requestId={request.id} />
+            <Composer audience="admin" mode="reply" requestId={request.id} presets={presets} />
           </div>
         </div>
       </section>
