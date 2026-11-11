@@ -1486,6 +1486,25 @@ select pg_temp.expect(
      and body = '請看附件'),
   'deleting a client leaves shared reply presets in place'
 );
+select pg_temp.expect(
+  (select count(*) = 0 from public.reply_presets where body = '攪掂'),
+  'the built-in reply preset is not stored'
+);
+
+delete from public.reply_presets
+where id = '50505050-5050-4050-8050-505050505050'
+  and body <> '攪掂';
+
+select pg_temp.expect(
+  (select count(*) = 0
+   from public.reply_presets
+   where id = '50505050-5050-4050-8050-505050505050'),
+  'deleting a saved reply preset removes that row'
+);
+select pg_temp.expect(
+  (select count(*) = 1 from public.clients where login_name = 'chan-co'),
+  'deleting a reply preset leaves other client accounts in place'
+);
 
 delete from public.clients
 where id = '99999999-9999-4999-8999-999999999999';

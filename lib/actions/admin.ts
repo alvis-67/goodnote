@@ -21,6 +21,7 @@ import { insertMessage, messageBody, normalizeFiles, type ActionFailure, type Pr
 import {
   BUILTIN_REPLY_PRESET,
   parseReplyPresetDraft,
+  type DeleteReplyPresetResult,
   type SaveReplyPresetResult,
 } from "@/lib/reply-presets";
 import type { MutationResult } from "@/lib/mutation";
@@ -221,6 +222,25 @@ export async function saveReplyPreset(body: string): Promise<SaveReplyPresetResu
     if (isRedirect(error)) throw error;
     console.error("reply preset save failed", dbErrorCode(error));
     return { ok: false, error: "未能儲存預設回覆。" };
+  }
+}
+
+export async function deleteReplyPreset(id: string): Promise<DeleteReplyPresetResult> {
+  if (!isDeskReady()) return { ok: false, error: "系統尚未完成設定。" };
+  await requireAdmin();
+  if (!isUuid(id)) return { ok: false, error: "這個預設回覆不能刪除。" };
+
+  try {
+    await sql()`
+      delete from reply_presets
+      where id = ${id}
+        and body <> ${BUILTIN_REPLY_PRESET}
+    `;
+    return { ok: true };
+  } catch (error) {
+    if (isRedirect(error)) throw error;
+    console.error("reply preset delete failed", dbErrorCode(error));
+    return { ok: false, error: "未能刪除預設回覆。" };
   }
 }
 
