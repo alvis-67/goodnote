@@ -162,3 +162,18 @@ test("the client request page has no follow-up composer", () => {
   assert.match(composer, /prepareAdminReply/);
   assert.match(composer, /mode === "reply" \? "回覆客戶" : "提交請求"/);
 });
+
+test("choosing a file shows its name before anything is uploaded", () => {
+  const composer = readFileSync(new URL("../components/composer.tsx", import.meta.url), "utf8");
+  const fileInput = composer.slice(composer.indexOf('type="file"'), composer.indexOf("可上載相片"));
+  assert.doesNotMatch(fileInput, /sr-only/);
+  assert.match(fileInput, /opacity-0/);
+  assert.match(fileInput, /const picked = Array\.from\(input\.files \?\? \[\]\);\s*input\.value = "";\s*addPickedFiles\(picked\);/);
+  assert.match(composer, /if \(picked\.length === 0\) return;/);
+  assert.match(composer, /appendPickedFiles\(files, picked\)/);
+  assert.match(composer, /已選擇 \{files\.length\} 個檔案/);
+  assert.match(composer, /formatBytes\(file\.size\)/);
+  assert.match(composer, /移除/);
+  assert.match(composer, /method: ticket\.method/);
+  assert.doesNotMatch(fileInput, /fetch\(/);
+});

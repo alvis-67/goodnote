@@ -91,19 +91,57 @@ export function resolveFile(file: FileMeta): ResolvedFile | null {
   return null;
 }
 
+export function fileRejection(file: FileMeta): string | null {
+  const name = displayFileName(file.name);
+  if (!Number.isFinite(file.size) || file.size < 0) {
+    return `「${name}」的格式不支援。請上載相片、PDF 或常見的文件。`;
+  }
+  if (file.size === 0) {
+    return `「${name}」是空檔案，未能加入。`;
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    return `「${name}」超過 20MB。`;
+  }
+  if (!resolveFile(file)) {
+    return `「${name}」的格式不支援。請上載相片、PDF 或常見的文件。`;
+  }
+  return null;
+}
+
 export function validateFiles(files: FileMeta[]): string | null {
   if (files.length > MAX_FILES) {
     return `最多上載 ${MAX_FILES} 個檔案。`;
   }
   for (const file of files) {
-    if (file.size > MAX_FILE_BYTES) {
-      return `「${displayFileName(file.name)}」超過 20MB。`;
-    }
-    if (!resolveFile(file)) {
-      return `「${displayFileName(file.name)}」的格式不支援。請上載相片、PDF 或常見的文件。`;
-    }
+    const rejection = fileRejection(file);
+    if (rejection) return rejection;
   }
   return null;
+}
+
+export function appendPickedFiles<T extends FileMeta>(
+  current: readonly T[],
+  picked: readonly T[],
+): { files: T[]; error: string | null } {
+  const files = current.slice();
+  const errors: string[] = [];
+  let reportedLimit = false;
+  for (const file of picked) {
+    if (files.length >= MAX_FILES) {
+      if (!reportedLimit) {
+        errors.push(`最多上載 ${MAX_FILES} 個檔案。`);
+        reportedLimit = true;
+      }
+      continue;
+    }
+    const rejection = fileRejection(file);
+    if (rejection) {
+      errors.push(rejection);
+      continue;
+    }
+    files.push(file);
+  }
+  return { files, error: errors.length > 0 ? errors.join("\n") : null };
 }
 
 export function acceptAttribute(): string {
