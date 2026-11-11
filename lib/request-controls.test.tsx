@@ -50,12 +50,12 @@ test("delete asks for confirmation before the request can be removed", () => {
       requestId,
       confirming: false,
       action: () => undefined,
-      askHref: "?confirm=delete",
       cancelHref: "?",
     }),
   );
   assert.match(idle, /刪除請求/);
-  assert.match(idle, /href="\?confirm=delete"/);
+  assert.match(idle, /type="button"/);
+  assert.doesNotMatch(idle, /href=/);
   assert.doesNotMatch(idle, /<form/);
   assert.doesNotMatch(idle, /確認刪除/);
   assert.doesNotMatch(idle, /name="confirm"/);
@@ -65,7 +65,6 @@ test("delete asks for confirmation before the request can be removed", () => {
       requestId,
       confirming: true,
       action: () => undefined,
-      askHref: "?confirm=delete",
       cancelHref: "?",
     }),
   );

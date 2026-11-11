@@ -213,32 +213,34 @@ async function loadThreadFor(requestId: string, clientId: string | null): Promis
   messages: MessageRow[];
   attachments: ThreadAttachment[];
 }> {
-  const messages = clientId
-    ? await sql()`
-        select id, request_id, author_role, kind, body, status_from, status_to, stage_from, stage_to, created_at
-        from messages
-        where request_id = ${requestId}
-          and request_id in (select id from requests where client_id = ${clientId})
-        order by created_at asc
-      `
-    : await sql()`
-        select id, request_id, author_role, kind, body, status_from, status_to, stage_from, stage_to, created_at
-        from messages
-        where request_id = ${requestId}
-        order by created_at asc
-      `;
-  const attachments = clientId
-    ? await sql()`
-        select id, message_id, file_name, mime_type, size_bytes, storage_path
-        from attachments
-        where request_id = ${requestId}
-          and client_id = ${clientId}
-      `
-    : await sql()`
-        select id, message_id, file_name, mime_type, size_bytes, storage_path
-        from attachments
-        where request_id = ${requestId}
-      `;
+  const [messages, attachments] = await Promise.all([
+    clientId
+      ? sql()`
+          select id, request_id, author_role, kind, body, status_from, status_to, stage_from, stage_to, created_at
+          from messages
+          where request_id = ${requestId}
+            and request_id in (select id from requests where client_id = ${clientId})
+          order by created_at asc
+        `
+      : sql()`
+          select id, request_id, author_role, kind, body, status_from, status_to, stage_from, stage_to, created_at
+          from messages
+          where request_id = ${requestId}
+          order by created_at asc
+        `,
+    clientId
+      ? sql()`
+          select id, message_id, file_name, mime_type, size_bytes, storage_path
+          from attachments
+          where request_id = ${requestId}
+            and client_id = ${clientId}
+        `
+      : sql()`
+          select id, message_id, file_name, mime_type, size_bytes, storage_path
+          from attachments
+          where request_id = ${requestId}
+        `,
+  ]);
   return {
     messages: messages.flatMap((row) => {
       const message = messageFrom(row);
@@ -290,14 +292,13 @@ function inboxFrom(row: Record<string, unknown>): InboxRow | null {
 export async function loadAdminInbox(filters: InboxFilters): Promise<{
   rows: InboxRow[];
   clients: Pick<ClientRow, "id" | "company_name">[];
-  unread: number;
 }> {
-  if (!isDeskReady()) return { rows: [], clients: [], unread: 0 };
+  if (!isDeskReady()) return { rows: [], clients: [] };
   await requireAdmin();
   const status = filters.status ?? null;
   const topic = filters.topic ?? null;
   const clientId = filters.clientId ?? null;
-  const [inbox, clients, unread] = await Promise.all([
+  const [inbox, clients] = await Promise.all([
     sql()`
       select id, client_id, topic, stage, status, work_location, parent_request_id,
              created_at, updated_at, last_activity_at,
@@ -316,11 +317,6 @@ export async function loadAdminInbox(filters: InboxFilters): Promise<{
       from clients
       order by company_name asc
     `,
-    sql()`
-      select count(*)::int as count
-      from requests
-      where admin_unread = true
-    `,
   ]);
   return {
     rows: inbox.flatMap((row) => {
@@ -328,7 +324,6 @@ export async function loadAdminInbox(filters: InboxFilters): Promise<{
       return item ? [item] : [];
     }),
     clients: clients.map((row) => ({ id: String(row.id), company_name: String(row.company_name) })),
-    unread: Number(unread[0]?.count ?? 0),
   };
 }
 
@@ -338,25 +333,31 @@ export async function getAdminRequest(requestId: string): Promise<{
 } | null> {
   if (!isDeskReady() || !isUuid(requestId)) return null;
   await requireAdmin();
-  const requests = await sql()`
-    select id, client_id, topic, stage, status, work_location, parent_request_id, created_at, updated_at, last_activity_at,
-           admin_unread, admin_last_read_at, client_unread, client_last_read_at
-    from requests
-    where id = ${requestId}
+  const rows = await sql()`
+    select r.id, r.client_id, r.topic, r.stage, r.status, r.work_location, r.parent_request_id,
+           r.created_at, r.updated_at, r.last_activity_at,
+           r.admin_unread, r.admin_last_read_at, r.client_unread, r.client_last_read_at,
+           c.company_name, c.contact_name, c.phone, c.notes, c.login_name, c.email,
+           (c.password_hash is not null) as has_password,
+           c.created_at as client_created_at, c.updated_at as client_updated_at
+    from requests r
+    join clients c on c.id = r.client_id
+    where r.id = ${requestId}
     limit 1
   `;
-  const request = requests[0] ? requestFrom(requests[0]) : null;
-  if (!request) return null;
-  const clients = await sql()`
-    select id, company_name, contact_name, phone, notes, login_name, email,
-           (password_hash is not null) as has_password, created_at, updated_at
-    from clients
-    where id = ${request.client_id}
-    limit 1
-  `;
-  const row = clients[0];
+  const row = rows[0];
   if (!row) return null;
-  return { request, client: adminClientFrom(row) };
+  const request = requestFrom(row);
+  if (!request) return null;
+  return {
+    request,
+    client: adminClientFrom({
+      ...row,
+      id: row.client_id,
+      created_at: row.client_created_at,
+      updated_at: row.client_updated_at,
+    }),
+  };
 }
 
 export async function listAdminClients(): Promise<ClientRow[]> {

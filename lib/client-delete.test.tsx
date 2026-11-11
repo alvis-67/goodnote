@@ -23,7 +23,6 @@ function markup(element: ReturnType<typeof createElement>): string {
 }
 
 test("delete asks for confirmation before a client can be removed", () => {
-  const askHref = clientsListHref({ deleteId: clientId });
   const cancelHref = clientsListHref();
   const idle = markup(
     createElement(DeleteClient, {
@@ -31,13 +30,13 @@ test("delete asks for confirmation before a client can be removed", () => {
       companyName: "甲工程公司",
       confirming: false,
       action: () => undefined,
-      askHref,
       cancelHref,
     }),
   );
   assert.match(idle, /刪除客戶/);
   assert.match(idle, /aria-label="刪除甲工程公司"/);
-  assert.match(idle, new RegExp(`href="${askHref.replaceAll("?", "\\?")}"`));
+  assert.match(idle, /type="button"/);
+  assert.doesNotMatch(idle, /href=/);
   assert.doesNotMatch(idle, /<form/);
   assert.doesNotMatch(idle, /確認刪除/);
   assert.doesNotMatch(idle, /name="confirm"/);
@@ -49,7 +48,6 @@ test("delete asks for confirmation before a client can be removed", () => {
       companyName: "甲工程公司",
       confirming: true,
       action: () => undefined,
-      askHref,
       cancelHref,
     }),
   );

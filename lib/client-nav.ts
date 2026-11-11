@@ -27,9 +27,10 @@ export type CreateNavigation = {
 };
 
 /**
- * Leave the create form with a full page load that replaces that form in
- * history. The previous entry is 「我的請求」, so the phone back control
- * returns there. The session cookie is unchanged.
+ * Leave the create form by replacing it in history. The previous entry is
+ * 「我的請求」, so the phone back control returns there. The session cookie
+ * is unchanged. Callers use a client transition so the next screen can paint
+ * from the local cache while the server finishes.
  */
 export function navigationAfterCreate(redirectTo: string): CreateNavigation {
   const path = pathOnly(redirectTo);

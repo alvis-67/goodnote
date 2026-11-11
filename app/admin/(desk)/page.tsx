@@ -1,18 +1,21 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
 import { deleteRequest } from "@/lib/actions/admin";
 import { DeleteRequest } from "@/components/delete-request";
+import { DeskFilters } from "@/components/desk-filters";
 import { RequestChainLinks } from "@/components/document-chain";
+import { InstantLink } from "@/components/instant-link";
+import { RememberAdminList } from "@/components/remember-view";
 import { StatusBadge } from "@/components/status-badge";
 import { WorkLocation } from "@/components/work-location";
 import { loadAdminInbox } from "@/lib/data";
 import type { ChainLink } from "@/lib/document-chain";
-import { STATUSES, TOPICS, isStatusId, isTopicId } from "@/lib/domain";
+import { isStatusId, isTopicId } from "@/lib/domain";
 import { requestTitle } from "@/lib/request-stage";
 import { excerpt, formatRelative } from "@/lib/format";
 import { adminDeskHref, adminRequestPath } from "@/lib/paths";
 import { isUuid } from "@/lib/tokens";
+import { adminCacheKey, toCachedAdminRow } from "@/lib/view-cache";
 
 export const metadata: Metadata = { title: "工作台" };
 
@@ -36,54 +39,18 @@ export default async function AdminHomePage({
           <h1 className="text-2xl font-semibold">工作台</h1>
           <p className="mt-1 text-sm text-muted">未讀的新請求和客戶新訊息會排在最前。</p>
         </div>
-        <Link href="/admin/clients/new" className="rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white">
+        <InstantLink href="/admin/clients/new" className="rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white">
           新增客戶
-        </Link>
+        </InstantLink>
       </div>
 
-      <form method="get" className="mt-5 grid gap-3 rounded-3xl border border-navy/10 bg-desk-card p-4 sm:grid-cols-4">
-        <label className="flex flex-col gap-1 text-sm font-semibold">
-          狀態
-          <select name="status" defaultValue={status ?? ""} className="rounded-xl border border-line bg-white px-3 py-2 font-normal">
-            <option value="">全部</option>
-            {STATUSES.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm font-semibold">
-          事項
-          <select name="topic" defaultValue={topic ?? ""} className="rounded-xl border border-line bg-white px-3 py-2 font-normal">
-            <option value="">全部</option>
-            {TOPICS.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm font-semibold">
-          客戶
-          <select name="client" defaultValue={clientId ?? ""} className="rounded-xl border border-line bg-white px-3 py-2 font-normal">
-            <option value="">全部</option>
-            {inbox.clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.company_name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="flex items-end gap-3">
-          <button type="submit" className="min-h-11 rounded-xl bg-navy px-4 font-semibold text-white">
-            篩選
-          </button>
-          <Link href="/admin" className="pb-2 text-sm font-semibold text-navy">
-            清除
-          </Link>
-        </div>
-      </form>
+      <DeskFilters
+        status={status}
+        topic={topic}
+        clientId={clientId}
+        clients={inbox.clients}
+        currentHref={deskHref}
+      />
 
       {params.notice === "deleted" ? (
         <p role="status" className="mt-4 rounded-2xl bg-ok-bg px-4 py-3 text-sm text-ok">
@@ -93,6 +60,12 @@ export default async function AdminHomePage({
       {params.error === "delete" ? (
         <p className="mt-4 rounded-2xl bg-danger-bg px-4 py-3 text-sm text-danger">未能刪除這則請求。</p>
       ) : null}
+
+      <RememberAdminList
+        cacheKey={adminCacheKey({ status, topic, clientId })}
+        rows={inbox.rows.map((row) => toCachedAdminRow(row))}
+        clients={inbox.clients}
+      />
 
       {inbox.rows.length === 0 ? (
         <p className="mt-8 rounded-3xl border border-dashed border-navy/15 bg-desk-card px-5 py-8 text-muted">
@@ -115,7 +88,7 @@ export default async function AdminHomePage({
                   row.admin_unread ? "border-stamp" : "border-transparent"
                 }`}
               >
-                <Link href={adminRequestPath(row.id)} className="block">
+                <InstantLink href={adminRequestPath(row.id)} className="block">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-semibold">
                       {row.company_name}
@@ -136,14 +109,13 @@ export default async function AdminHomePage({
                       </span>
                     ) : null}
                   </div>
-                </Link>
+                </InstantLink>
                 <RequestChainLinks parent={parent} child={child} hrefFor={adminRequestPath} />
                 <div className="mt-3 flex justify-end border-t border-navy/10 pt-3">
                   <DeleteRequest
                     requestId={row.id}
                     confirming={deleteId === row.id}
                     action={deleteRequest}
-                    askHref={adminDeskHref({ status, topic, clientId, deleteId: row.id })}
                     cancelHref={deskHref}
                     askLabel={`刪除${row.company_name}的${requestTitle(row.topic, row.stage)}`}
                     compact

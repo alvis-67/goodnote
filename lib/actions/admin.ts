@@ -18,6 +18,7 @@ import { asText } from "@/lib/rows";
 import { isUuid } from "@/lib/tokens";
 import { deleteRequestFiles, finalizeUploads, prepareUploads } from "@/lib/uploads";
 import { insertMessage, messageBody, normalizeFiles, type ActionFailure, type PrepareSuccess } from "@/lib/actions/shared";
+import type { MutationResult } from "@/lib/mutation";
 
 export async function createClientAccount(
   _previous: ActionFailure | null,
@@ -73,13 +74,12 @@ export async function createClientAccount(
   }
 }
 
-export async function setRequestStatus(formData: FormData): Promise<void> {
+export async function setRequestStatus(formData: FormData): Promise<MutationResult> {
   const requestId = String(formData.get("requestId") ?? "");
   const status = String(formData.get("status") ?? "");
-  if (!isUuid(requestId)) redirect("/admin");
+  if (!isUuid(requestId) || !isStatusId(status)) return { ok: false, error: "狀態未能更新。" };
   await requireAdmin();
   const back = `/admin/requests/${requestId}`;
-  if (!isStatusId(status)) redirect(`${back}?error=status`);
 
   try {
     const updated = await sql()`
@@ -96,19 +96,19 @@ export async function setRequestStatus(formData: FormData): Promise<void> {
         where id = ${requestId}
         limit 1
       `;
-      if (!existing[0]) redirect("/admin");
+      if (!existing[0]) return { ok: false, error: "找不到這個請求。" };
     }
   } catch (error) {
     if (isRedirect(error)) throw error;
     console.error("status update failed", dbErrorCode(error));
-    redirect(`${back}?error=status`);
+    return { ok: false, error: "狀態未能更新。" };
   }
 
   revalidatePath(back);
   revalidatePath("/admin");
   revalidatePath(clientHomePath);
   revalidatePath(clientRequestPath(requestId));
-  redirect(`${back}?notice=status`);
+  return { ok: true };
 }
 
 export async function deleteRequest(formData: FormData): Promise<void> {

@@ -1,3 +1,4 @@
+import { InstantLink } from "@/components/instant-link";
 import { chainFromLabel, chainOpenLabel, chainStartedLabel, type ChainLink } from "@/lib/document-chain";
 
 export function DocumentChain({
@@ -20,17 +21,17 @@ export function DocumentChain({
         {parent ? (
           <p>
             <span>{chainFromLabel(parent.topic)}</span>
-            <a href={hrefFor(parent.id)} className="ml-3 font-semibold text-navy underline">
+            <InstantLink href={hrefFor(parent.id)} className="ml-3 font-semibold text-navy underline">
               {chainOpenLabel(parent.topic)}
-            </a>
+            </InstantLink>
           </p>
         ) : null}
         {child ? (
           <p>
             <span>{chainStartedLabel(child.topic)}</span>
-            <a href={hrefFor(child.id)} className="ml-3 font-semibold text-navy underline">
+            <InstantLink href={hrefFor(child.id)} className="ml-3 font-semibold text-navy underline">
               {chainOpenLabel(child.topic)}
-            </a>
+            </InstantLink>
           </p>
         ) : null}
       </div>
@@ -51,14 +52,14 @@ export function RequestChainLinks({
   return (
     <div className="mt-3 flex flex-col gap-1 text-sm">
       {parent ? (
-        <a href={hrefFor(parent.id)} className="font-semibold text-navy underline">
+        <InstantLink href={hrefFor(parent.id)} className="font-semibold text-navy underline">
           {chainFromLabel(parent.topic)}
-        </a>
+        </InstantLink>
       ) : null}
       {child ? (
-        <a href={hrefFor(child.id)} className="font-semibold text-navy underline">
+        <InstantLink href={hrefFor(child.id)} className="font-semibold text-navy underline">
           {chainStartedLabel(child.topic)}
-        </a>
+        </InstantLink>
       ) : null}
     </div>
   );
