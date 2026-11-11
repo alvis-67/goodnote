@@ -16,12 +16,10 @@
   --color-navy-dark: #102538;
   --color-pending: #8a5a12;
   --color-pending-bg: #f8e7c2;
-  --color-progress: #17324d;
-  --color-progress-bg: #d7e4f2;
-  --color-issued: #1d5c45;
-  --color-issued-bg: #d5eee3;
   --color-recorded: #4d463e;
   --color-recorded-bg: #ece4d8;
+  --color-completed: #1d5c45;
+  --color-completed-bg: #d5eee3;
   --color-danger: #8d2f2b;
   --color-danger-bg: #f8e4e1;
   --color-ok: #1d5c45;

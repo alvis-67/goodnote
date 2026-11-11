@@ -78,7 +78,7 @@ export default async function AdminRequestPage({
           className="mt-4 rounded-2xl bg-desk-card px-4 py-4"
         />
         <div className="mt-4 rounded-2xl bg-desk-card px-4 py-3 text-sm leading-6">
-          <p>只有管理員可以更改狀態。拉下選單可以隨時改為待處理、處理中、已出單或已入機。</p>
+          <p>只有管理員可以更改狀態。拉下選單可以隨時改為待處理、已入機或已完成。</p>
           <StatusMenu requestId={request.id} status={request.status} action={setRequestStatus} />
           {query.notice === "status" ? (
             <p role="status" className="mt-2 text-ok">

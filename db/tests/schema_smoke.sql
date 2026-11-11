@@ -88,14 +88,56 @@ exception
     end if;
 end $$;
 
+do $$
+begin
+  update public.requests
+  set status = 'in_progress'
+  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  raise exception 'FAIL: removed status in_progress stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  update public.requests
+  set status = 'issued'
+  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  raise exception 'FAIL: removed status issued stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
 select pg_temp.expect(
   (select status = 'pending' from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
-  'unknown status does not stick'
+  'removed statuses do not stick'
+);
+
+select pg_temp.expect(
+  (select pg_get_constraintdef(oid) like '%pending%'
+      and pg_get_constraintdef(oid) like '%recorded%'
+      and pg_get_constraintdef(oid) like '%completed%'
+      and pg_get_constraintdef(oid) not like '%in_progress%'
+      and pg_get_constraintdef(oid) not like '%issued%'
+   from pg_constraint
+   where conname = 'requests_status_check'
+     and conrelid = 'public.requests'::regclass),
+  'request status is limited to pending, recorded, and completed'
 );
 
 do $$
 declare
-  statuses text[] := array['pending', 'in_progress', 'issued', 'recorded'];
+  statuses text[] := array['pending', 'recorded', 'completed'];
   origin text;
   dest text;
   changes_before int;
@@ -143,10 +185,10 @@ end $$;
 
 select pg_temp.expect(
   (select status = 'recorded' from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
-  'admin can set the status to any of the four values'
+  'admin can set the status to any of the three values'
 );
 select pg_temp.expect(
-  (select count(*) = 12
+  (select count(*) = 6
    from (
      select distinct status_from, status_to
      from public.messages
@@ -790,7 +832,7 @@ insert into public.attachments (
 );
 
 update public.requests
-set status = 'issued',
+set status = 'completed',
     admin_unread = false
 where id = '10101010-1010-4010-8010-101010101010';
 
@@ -872,7 +914,7 @@ select pg_temp.expect(
    from public.messages
    where request_id = '10101010-1010-4010-8010-101010101010'
      and kind = 'status_change'
-     and status_from = 'issued'
+     and status_from = 'completed'
      and status_to = 'pending'),
   'advancing a quotation returns its status to pending'
 );
@@ -929,7 +971,7 @@ where id = '10101010-1010-4010-8010-101010101010';
 
 update public.requests
 set stage = 'receipt',
-    status = 'issued'
+    status = 'completed'
 where id = '10101010-1010-4010-8010-101010101010'
   and stage = 'invoice';
 
@@ -976,18 +1018,22 @@ exception
 end $$;
 
 update public.requests
-set status = 'in_progress'
+set status = 'recorded'
 where id = '10101010-1010-4010-8010-101010101010';
 
 update public.requests
-set status = 'issued'
+set status = 'completed'
+where id = '10101010-1010-4010-8010-101010101010';
+
+update public.requests
+set status = 'pending'
 where id = '10101010-1010-4010-8010-101010101010';
 
 select pg_temp.expect(
-  (select stage = 'receipt' and status = 'issued'
+  (select stage = 'receipt' and status = 'pending'
    from public.requests
    where id = '10101010-1010-4010-8010-101010101010'),
-  'the four statuses still work after the request reaches the receipt stage'
+  'the three statuses can still move in any direction at the receipt stage'
 );
 
 insert into public.requests (id, client_id, topic, work_location)

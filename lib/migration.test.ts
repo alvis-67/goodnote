@@ -13,7 +13,11 @@ const locationSql = readFileSync(new URL("../db/migrations/0004_work_location.sq
 const chainSql = readFileSync(new URL("../db/migrations/0005_document_chain.sql", import.meta.url), "utf8");
 const stageSql = readFileSync(new URL("../db/migrations/0006_request_stage.sql", import.meta.url), "utf8");
 const titleSql = readFileSync(new URL("../db/migrations/0007_stage_titles.sql", import.meta.url), "utf8");
+const statusSetSql = readFileSync(new URL("../db/migrations/0008_request_statuses.sql", import.meta.url), "utf8");
 const schemaScript = readFileSync(new URL("../scripts/test-schema.sh", import.meta.url), "utf8");
+const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+const adminRequest = readFileSync(new URL("../app/admin/(desk)/requests/[id]/page.tsx", import.meta.url), "utf8");
 const neonConfig = readFileSync(new URL("../neon.ts", import.meta.url), "utf8");
 const data = readFileSync(new URL("./data.ts", import.meta.url), "utf8");
 const legacy = readFileSync(new URL("../app/c/[[...slug]]/page.tsx", import.meta.url), "utf8");
@@ -33,13 +37,55 @@ test("the database enforces upload limits and does not touch neon auth", () => {
   assert.doesNotMatch(sql, /storage\.buckets/);
 });
 
-test("status can move between any of the four values", () => {
+test("status can move between any of the three values", () => {
   assert.match(statusSql, /create or replace function private\.enforce_request_update/);
   assert.doesNotMatch(statusSql, /old\.status = 'pending' and new\.status = 'in_progress'/);
+  assert.match(sql, /status in \('pending', 'recorded', 'completed'\)/);
+  assert.doesNotMatch(sql, /in_progress|'issued'/);
+  assert.match(statusSetSql, /DATABASE_URL_UNPOOLED/);
+  assert.match(statusSetSql, /0007_stage_titles\.sql/);
+  assert.match(statusSetSql, /set status = 'pending'\s+where status = 'in_progress'/);
+  assert.match(statusSetSql, /set status = 'completed'\s+where status = 'issued'/);
+  assert.match(statusSetSql, /set status_from = 'pending'\s+where status_from = 'in_progress'/);
+  assert.match(statusSetSql, /set status_from = 'completed'\s+where status_from = 'issued'/);
+  assert.match(statusSetSql, /set status_to = 'pending'\s+where status_to = 'in_progress'/);
+  assert.match(statusSetSql, /set status_to = 'completed'\s+where status_to = 'issued'/);
+  assert.match(statusSetSql, /payload->>'status' = 'in_progress'/);
+  assert.match(statusSetSql, /payload->>'status' = 'issued'/);
+  assert.match(statusSetSql, /disable trigger requests_log_status_change/);
+  assert.match(statusSetSql, /enable trigger requests_log_status_change/);
+  assert.match(statusSetSql, /new\.status := 'pending'/);
+  assert.match(statusSetSql, /new\.status not in \('pending', 'recorded', 'completed'\)/);
+  assert.match(statusSetSql, /old\.topic = 'quote' and old\.stage = 'quote' and new\.stage = 'invoice'/);
+  assert.match(statusSetSql, /old\.topic = 'quote' and old\.stage = 'invoice' and new\.stage = 'receipt'/);
+  assert.match(statusSetSql, /old\.topic = 'invoice' and old\.stage = 'invoice' and new\.stage = 'receipt'/);
+  assert.doesNotMatch(statusSetSql, /old\.topic = 'quote' and old\.stage = 'quote' and new\.stage = 'receipt'/);
+  assert.doesNotMatch(statusSetSql, /set body/i);
+  assert.doesNotMatch(statusSetSql, /update\s+(public\.)?requests\s+set\s+stage/i);
+  assert.doesNotMatch(statusSetSql, /update\s+(public\.)?messages\s+set\s+body/i);
+  assert.doesNotMatch(statusSetSql, /insert\s+into/i);
+  assert.doesNotMatch(statusSetSql, /neon_auth\./);
+  assert.doesNotMatch(statusSetSql, /postgres:\/\//i);
+  assert.doesNotMatch(statusSetSql, /password/i);
   for (const status of STATUSES) {
-    assert.match(statusSql, new RegExp(`'${status.id}'`));
+    assert.match(statusSetSql, new RegExp(`'${status.id}'`));
+    assert.match(sql, new RegExp(`'${status.id}'`));
   }
+  assert.deepEqual(
+    STATUSES.map((status) => status.label),
+    ["待處理", "已入機", "已完成"],
+  );
   assert.match(schemaScript, /db\/migrations\/\*\.sql/);
+  assert.match(schemaScript, /status_migration_before\.sql/);
+  assert.match(schemaScript, /status_migration_after\.sql/);
+  assert.match(readme, /待處理, 已入機, or 已完成/);
+  assert.match(readme, /0008_request_statuses\.sql/);
+  assert.match(home, /待處理、已入機和已完成/);
+  assert.match(adminRequest, /待處理、已入機或已完成/);
+  for (const copy of [readme, home, adminRequest]) {
+    assert.doesNotMatch(copy, /處理中|已出單/);
+  }
+  assert.doesNotMatch(readme, /four statuses/);
 });
 
 test("work location is optional on old rows and limited to 120 characters", () => {
