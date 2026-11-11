@@ -55,7 +55,11 @@ if [[ ${#migrations[@]} -eq 0 ]]; then
   exit 1
 fi
 for migration in "${migrations[@]}"; do
+  if [[ "$(basename "$migration")" == "0008_request_statuses.sql" ]]; then
+    "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT/db/tests/status_migration_before.sql" >/dev/null
+  fi
   "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
 done
+"$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT/db/tests/status_migration_after.sql" >/dev/null
 "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT/db/tests/schema_smoke.sql"
 echo "schema smoke test passed"

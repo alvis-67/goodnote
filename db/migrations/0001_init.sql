@@ -61,7 +61,7 @@ create table public.requests (
   client_unread boolean not null default false,
   client_last_read_at timestamptz,
   constraint requests_topic_check check (topic in ('quote', 'invoice', 'receipt', 'other')),
-  constraint requests_status_check check (status in ('pending', 'in_progress', 'issued', 'recorded'))
+  constraint requests_status_check check (status in ('pending', 'recorded', 'completed'))
 );
 
 comment on column public.requests.admin_unread is
@@ -87,10 +87,10 @@ create table public.messages (
   constraint messages_kind_check check (kind in ('message', 'status_change')),
   constraint messages_body_length check (body is null or char_length(body) <= 4000),
   constraint messages_status_from_check check (
-    status_from is null or status_from in ('pending', 'in_progress', 'issued', 'recorded')
+    status_from is null or status_from in ('pending', 'recorded', 'completed')
   ),
   constraint messages_status_to_check check (
-    status_to is null or status_to in ('pending', 'in_progress', 'issued', 'recorded')
+    status_to is null or status_to in ('pending', 'recorded', 'completed')
   ),
   constraint messages_shape_check check (
     (
@@ -219,12 +219,8 @@ begin
   end if;
 
   if new.status is distinct from old.status then
-    if not (
-      (old.status = 'pending' and new.status = 'in_progress')
-      or (old.status = 'in_progress' and new.status = 'issued')
-      or (old.status = 'issued' and new.status = 'recorded')
-    ) then
-      raise exception 'Invalid status transition' using errcode = '23514';
+    if new.status not in ('pending', 'recorded', 'completed') then
+      raise exception 'Invalid status' using errcode = '23514';
     end if;
     new.client_unread := true;
     new.last_activity_at := now();

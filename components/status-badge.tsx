@@ -2,9 +2,8 @@ import { statusLabel, type StatusId } from "@/lib/domain";
 
 const styles: Record<StatusId, string> = {
   pending: "bg-pending-bg text-pending",
-  in_progress: "bg-progress-bg text-progress",
-  issued: "bg-issued-bg text-issued",
   recorded: "bg-recorded-bg text-recorded",
+  completed: "bg-completed-bg text-completed",
 };
 
 export function StatusBadge({ status }: { status: StatusId }) {

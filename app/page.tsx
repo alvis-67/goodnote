@@ -10,7 +10,7 @@ export default function HomePage() {
       <ul className="mt-6 flex flex-col gap-2 text-base leading-7">
         <li>客戶用管理員設定的登入名稱和密碼登入。</li>
         <li>每項請求都有自己的對話和檔案。</li>
-        <li>狀態由待處理走到已入機，只有管理員可以更改。</li>
+        <li>狀態有待處理、已入機和已完成，只有管理員可以更改。</li>
       </ul>
       <div className="mt-8 flex flex-col gap-3">
         <Link

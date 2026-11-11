@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { DeleteRequest } from "../components/delete-request";
+import { StatusBadge } from "../components/status-badge";
 import { StatusMenu } from "../components/status-menu";
 import { STATUSES } from "./domain";
 import { adminDeskHref } from "./paths";
@@ -26,10 +27,16 @@ test("the status menu offers every status and shows the current one", () => {
     );
     assert.match(html, /<select[^>]*name="status"/);
     assert.match(html, /狀態\s*<select/);
-    for (const status of STATUSES) {
-      assert.match(html, new RegExp(`value="${status.id}"`));
-      assert.match(html, new RegExp(status.label));
-    }
+    const options = [...html.matchAll(/<option\b[^>]*>[^<]*<\/option>/g)].map((match) => {
+      const value = match[0].match(/value="([^"]+)"/)?.[1];
+      const label = match[0].match(/>([^<]*)<\/option>/)?.[1];
+      return [value, label];
+    });
+    assert.deepEqual(
+      options,
+      STATUSES.map((status) => [status.id, status.label]),
+    );
+    assert.doesNotMatch(html, /處理中|已出單|in_progress|issued/);
     assert.match(html, new RegExp(`<option[^>]*selected[^>]*>${current.label}</option>|<option[^>]*>${current.label}</option>`));
     const selected = html.match(/<option[^>]*selected[^>]*>[^<]+<\/option>/);
     assert.ok(selected, `current status ${current.id} is selected`);
@@ -91,15 +98,23 @@ test("the desk wires admin delete and a free status menu, and clients cannot del
   assert.doesNotMatch(clientPage, /DeleteRequest|deleteRequest|刪除請求/);
 });
 
+test("status badges show the three labels", () => {
+  const html = STATUSES.map((status) => markup(createElement(StatusBadge, { status: status.id }))).join("");
+  assert.match(html, /待處理/);
+  assert.match(html, /已入機/);
+  assert.match(html, /已完成/);
+  assert.doesNotMatch(html, /處理中|已出單/);
+});
+
 test("workbench delete links keep the current filters", () => {
   assert.equal(adminDeskHref({}), "/admin");
   assert.equal(
     adminDeskHref({
-      status: "issued",
+      status: "completed",
       topic: "quote",
       clientId: "11111111-1111-4111-8111-111111111111",
       deleteId: requestId,
     }),
-    "/admin?status=issued&topic=quote&client=11111111-1111-4111-8111-111111111111&delete=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "/admin?status=completed&topic=quote&client=11111111-1111-4111-8111-111111111111&delete=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   );
 });
