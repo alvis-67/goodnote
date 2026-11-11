@@ -3,9 +3,16 @@
 import { useActionState } from "react";
 
 import { changeAdminPassword } from "@/lib/actions/admin";
+import { browserViewStorage, clearViewCache } from "@/lib/view-cache";
 
 export function ChangePasswordForm() {
-  const [state, action, pending] = useActionState(changeAdminPassword, null);
+  const [state, action, pending] = useActionState(
+    async (previous: Awaited<ReturnType<typeof changeAdminPassword>>, formData: FormData) => {
+      clearViewCache(browserViewStorage());
+      return changeAdminPassword(previous, formData);
+    },
+    null,
+  );
   return (
     <form action={action} className="flex flex-col gap-4">
       <label className="flex flex-col gap-2 text-sm font-semibold">

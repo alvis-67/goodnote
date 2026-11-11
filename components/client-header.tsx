@@ -3,6 +3,8 @@
 import { usePathname } from "next/navigation";
 
 import { ClientListLink } from "@/components/client-list-link";
+import { InstantLink } from "@/components/instant-link";
+import { SignOutForm } from "@/components/sign-out-form";
 import { signOutClient } from "@/lib/actions/auth";
 import { clientListHref, showNewRequest } from "@/lib/client-nav";
 import { clientHomePath, clientNewPath } from "@/lib/paths";
@@ -23,9 +25,9 @@ export function ClientHeader({
     <header className="sticky top-0 z-10 border-b border-line bg-paper">
       <div className="mx-auto flex w-full max-w-lg flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
-          <a href={clientHomePath} className="text-xs font-semibold tracking-wide text-stamp">
+          <InstantLink href={clientHomePath} className="text-xs font-semibold tracking-wide text-stamp">
             好事筆記
-          </a>
+          </InstantLink>
           <p className="truncate text-base font-semibold">{companyName}</p>
           {contactName ? <p className="truncate text-sm text-muted">{contactName}</p> : null}
           {unread > 0 ? <p className="text-sm font-semibold text-stamp">{unread} 個新回覆</p> : null}
@@ -35,18 +37,17 @@ export function ClientHeader({
             <ClientListLink className="inline-flex min-h-11 items-center rounded-xl px-3 py-2 text-sm font-semibold text-navy" />
           ) : null}
           {showNew ? (
-            <a
+            <InstantLink
               href={clientNewPath}
               className="inline-flex min-h-11 items-center rounded-xl bg-stamp px-3 py-2 text-sm font-semibold text-white"
             >
               新請求
-            </a>
+            </InstantLink>
           ) : null}
-          <form action={signOutClient}>
-            <button type="submit" className="inline-flex min-h-11 items-center rounded-xl px-3 py-2 text-sm font-semibold text-navy">
-              登出
-            </button>
-          </form>
+          <SignOutForm
+            action={signOutClient}
+            buttonClassName="inline-flex min-h-11 items-center rounded-xl px-3 py-2 text-sm font-semibold text-navy disabled:opacity-60"
+          />
         </div>
       </div>
     </header>

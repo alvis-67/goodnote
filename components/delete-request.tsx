@@ -1,31 +1,36 @@
-import type { ComponentProps } from "react";
+"use client";
 
+import { useState } from "react";
+import { useFormStatus } from "react-dom";
+
+import { InstantLink } from "@/components/instant-link";
 import { DELETE_CONFIRM_VALUE } from "@/lib/domain";
 
-type FormAction = Exclude<NonNullable<ComponentProps<"form">["action"]>, string>;
+type DeleteAction = (formData: FormData) => Promise<void> | void;
 
 export function DeleteRequest({
   requestId,
   confirming,
   action,
-  askHref,
   cancelHref,
   askLabel = "刪除請求",
   compact = false,
 }: {
   requestId: string;
   confirming: boolean;
-  action: FormAction;
-  askHref: string;
+  action: DeleteAction;
   cancelHref: string;
   askLabel?: string;
   compact?: boolean;
 }) {
-  if (!confirming) {
+  const [open, setOpen] = useState(confirming);
+
+  if (!open) {
     return (
-      <a
-        href={askHref}
+      <button
+        type="button"
         aria-label={askLabel}
+        onClick={() => setOpen(true)}
         className={
           compact
             ? "text-sm font-semibold text-danger"
@@ -33,7 +38,7 @@ export function DeleteRequest({
         }
       >
         {compact ? "刪除" : "刪除請求"}
-      </a>
+      </button>
     );
   }
 
@@ -43,13 +48,26 @@ export function DeleteRequest({
       <input type="hidden" name="requestId" value={requestId} />
       <input type="hidden" name="confirm" value={DELETE_CONFIRM_VALUE} />
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button type="submit" className="min-h-11 rounded-xl bg-danger px-4 font-semibold text-white">
-          確認刪除
-        </button>
-        <a href={cancelHref} className="inline-flex min-h-11 items-center px-2 font-semibold text-navy">
-          取消
-        </a>
+        <ConfirmDelete />
+        {confirming ? (
+          <InstantLink href={cancelHref} className="inline-flex min-h-11 items-center px-2 font-semibold text-navy">
+            取消
+          </InstantLink>
+        ) : (
+          <button type="button" className="inline-flex min-h-11 items-center px-2 font-semibold text-navy" onClick={() => setOpen(false)}>
+            取消
+          </button>
+        )}
       </div>
     </form>
+  );
+}
+
+function ConfirmDelete() {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" disabled={pending} className="min-h-11 rounded-xl bg-danger px-4 font-semibold text-white disabled:opacity-60">
+      {pending ? "正在刪除…" : "確認刪除"}
+    </button>
   );
 }

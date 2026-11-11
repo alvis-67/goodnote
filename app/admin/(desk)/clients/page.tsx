@@ -82,7 +82,6 @@ export default async function ClientsPage({
                     companyName={client.company_name}
                     confirming={deleteId === client.id}
                     action={deleteClient}
-                    askHref={clientsListHref({ deleteId: client.id })}
                     cancelHref={clientsListHref()}
                   />
                 </div>

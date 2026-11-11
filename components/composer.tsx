@@ -5,10 +5,14 @@ import { useRouter } from "next/navigation";
 
 import { finalizeAdminUploads, prepareAdminReply } from "@/lib/actions/admin";
 import { finalizeClientUploads, prepareClientRequest } from "@/lib/actions/client";
+import { InstantLink } from "@/components/instant-link";
+import { useCacheScope } from "@/components/view-cache-provider";
 import { navigationAfterCreate } from "@/lib/client-nav";
 import { TOPICS, type TopicId } from "@/lib/domain";
 import { formatBytes } from "@/lib/format";
 import { acceptAttribute, MAX_FILES, validateFiles, type FileMeta } from "@/lib/files";
+import { isUuid } from "@/lib/tokens";
+import { browserViewStorage, rememberProvisionalClientRequest } from "@/lib/view-cache";
 import { MAX_WORK_LOCATION_LENGTH, parseWorkLocation } from "@/lib/work-location";
 
 type ComposerProps =
@@ -19,6 +23,7 @@ export function Composer(props: ComposerProps) {
   const { audience, mode } = props;
   const requestId = props.audience === "admin" ? props.requestId : undefined;
   const router = useRouter();
+  const scope = useCacheScope();
   const [topic, setTopic] = useState<TopicId | null>(null);
   const [workLocation, setWorkLocation] = useState("");
   const [body, setBody] = useState("");
@@ -66,6 +71,19 @@ export function Composer(props: ComposerProps) {
     }
 
     setPending(true);
+    function rememberCreated(redirectTo: string) {
+      if (audience !== "client" || mode !== "create" || !scope || !topic) return;
+      const requestId = redirectTo.split("?")[0]?.split("/").pop() ?? "";
+      if (!isUuid(requestId)) return;
+      rememberProvisionalClientRequest(browserViewStorage(), scope, {
+        requestId,
+        topic,
+        workLocation: workLocationValue,
+        body,
+        files: files.map((file) => ({ name: file.name, type: file.type, size: file.size })),
+      });
+    }
+
     const prepared =
       audience === "admin"
         ? await prepareAdminReply({ requestId: requestId ?? "", body, files: metas })
@@ -77,6 +95,7 @@ export function Composer(props: ComposerProps) {
           });
 
     if (!prepared.ok) {
+      if (prepared.redirectTo) rememberCreated(prepared.redirectTo);
       setPending(false);
       setError(prepared.error);
       setContinueHref(prepared.redirectTo ?? null);
@@ -125,6 +144,7 @@ export function Composer(props: ComposerProps) {
               files: uploaded,
             });
       if (!saved.ok) {
+        rememberCreated(saved.redirectTo ?? prepared.redirectTo);
         setPending(false);
         setProgress(null);
         setError(saved.error);
@@ -134,6 +154,7 @@ export function Composer(props: ComposerProps) {
     }
 
     if (failed) {
+      rememberCreated(prepared.redirectTo);
       setPending(false);
       setProgress(null);
       setError(
@@ -146,8 +167,9 @@ export function Composer(props: ComposerProps) {
     }
 
     if (audience === "client" && mode === "create") {
+      rememberCreated(prepared.redirectTo);
       const navigation = navigationAfterCreate(prepared.redirectTo);
-      window.location.replace(navigation.href);
+      router.replace(navigation.href);
       return;
     }
 
@@ -259,9 +281,9 @@ export function Composer(props: ComposerProps) {
           {continueHref ? (
             <>
               {" "}
-              <a href={continueHref} className="font-semibold underline">
+              <InstantLink href={continueHref} className="font-semibold underline">
                 開啟請求
-              </a>
+              </InstantLink>
             </>
           ) : null}
         </p>

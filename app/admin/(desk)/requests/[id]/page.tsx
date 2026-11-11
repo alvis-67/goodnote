@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
+
+import { InstantLink } from "@/components/instant-link";
 
 import { deleteRequest, setRequestStatus } from "@/lib/actions/admin";
 import { advanceAdminRequestStage } from "@/lib/actions/stage";
@@ -8,8 +9,9 @@ import { AdvanceStage, StagePrompt } from "@/components/advance-stage";
 import { Composer } from "@/components/composer";
 import { DeleteRequest } from "@/components/delete-request";
 import { DocumentChain } from "@/components/document-chain";
+import { LiveRequest, LiveRequestTitle, LiveStatusBadge } from "@/components/live-request";
 import { MarkAdminRead } from "@/components/mark-read";
-import { StatusBadge } from "@/components/status-badge";
+import { RememberAdminDetail } from "@/components/remember-view";
 import { StatusMenu } from "@/components/status-menu";
 import { Thread } from "@/components/thread";
 import { WorkLocation } from "@/components/work-location";
@@ -26,6 +28,7 @@ import {
   stageAdvancedNotice,
 } from "@/lib/request-stage";
 import { signAttachmentPaths } from "@/lib/uploads";
+import { toCachedClientDetail, toCachedClientRequest } from "@/lib/view-cache";
 
 export const metadata: Metadata = { title: "請求" };
 
@@ -36,21 +39,42 @@ export default async function AdminRequestPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ notice?: string; error?: string; confirm?: string }>;
 }) {
-  const { id } = await params;
-  const query = await searchParams;
   if (!isDeskReady()) return null;
-  const loaded = await getAdminRequest(id);
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const [loaded, chain, thread] = await Promise.all([
+    getAdminRequest(id),
+    loadAdminRequestChain(id),
+    loadAdminThread(id),
+  ]);
   if (!loaded) notFound();
   const { request, client } = loaded;
-  const [chain, thread] = await Promise.all([loadAdminRequestChain(request.id), loadAdminThread(request.id)]);
   const urls = hasStorageEnv()
     ? await signAttachmentPaths(thread.attachments.map((file) => file.storage_path))
     : new Map<string, string>();
   const advanceLabel = stageAdvanceLabel(request.topic, request.stage);
   const stagePrompt = adminStagePrompt(client.company_name, request.topic, request.stage);
+  const cachedRequest = toCachedClientRequest({ ...request, parent: chain.parent, child: chain.child });
 
   return (
     <main className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <RememberAdminDetail
+        detail={{
+          ...toCachedClientDetail(cachedRequest, {
+            messages: thread.messages.map((message) => ({
+              id: message.id,
+              author_role: message.author_role,
+              kind: message.kind,
+              body: message.body,
+              created_at: message.created_at,
+            })),
+            attachments: thread.attachments,
+          }),
+          company_name: client.company_name,
+          contact_name: client.contact_name,
+          phone: client.phone,
+          notes: client.notes,
+        }}
+      />
       <MarkAdminRead requestId={request.id} />
       <aside className="h-fit rounded-3xl bg-desk-card p-4">
         <p className="text-sm text-muted">客戶</p>
@@ -58,18 +82,28 @@ export default async function AdminRequestPage({
         {client.contact_name ? <p className="mt-2 text-sm">{client.contact_name}</p> : null}
         {client.phone ? <p className="text-sm">{client.phone}</p> : null}
         {client.notes ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted">{client.notes}</p> : null}
-        <Link href="/admin/clients" className="mt-4 inline-flex text-sm font-semibold text-navy">
+        <InstantLink href="/admin/clients" className="mt-4 inline-flex text-sm font-semibold text-navy">
           全部客戶
-        </Link>
+        </InstantLink>
       </aside>
       <section>
+        <LiveRequest
+          key={request.id}
+          requestId={request.id}
+          topic={request.topic}
+          stage={request.stage}
+          status={request.status}
+          companyName={client.company_name}
+        >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-semibold">{requestTitle(request.topic, request.stage)}</h2>
+            <h2 className="text-2xl font-semibold">
+              <LiveRequestTitle topic={request.topic} stage={request.stage} />
+            </h2>
             <WorkLocation location={request.work_location} />
             <p className="mt-1 text-sm text-muted">建立於 {formatDateTime(request.created_at)}</p>
           </div>
-          <StatusBadge status={request.status} />
+          <LiveStatusBadge status={request.status} />
         </div>
         <DocumentChain
           parent={chain.parent}
@@ -108,7 +142,6 @@ export default async function AdminRequestPage({
               requestId={request.id}
               confirming={query.confirm === "delete"}
               action={deleteRequest}
-              askHref="?confirm=delete"
               cancelHref="?"
               askLabel={`刪除${client.company_name}的${requestTitle(request.topic, request.stage)}`}
             />
@@ -116,6 +149,7 @@ export default async function AdminRequestPage({
             {query.error === "delete" ? <p className="mt-2 text-danger">未能刪除這則請求。</p> : null}
           </div>
         </div>
+        </LiveRequest>
         <div className="mt-5">
           <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} />
         </div>

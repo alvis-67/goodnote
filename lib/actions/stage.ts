@@ -8,31 +8,30 @@ import { dbErrorCode, sql } from "@/lib/db";
 import { isTopicId } from "@/lib/domain";
 import { hasDatabaseEnv } from "@/lib/env";
 import { adminRequestPath, clientHomePath, clientRequestPath } from "@/lib/paths";
-import { isStageId, nextRequestStage } from "@/lib/request-stage";
+import type { MutationResult } from "@/lib/mutation";
+import { isStageId, nextRequestStage, stageAdvanceError } from "@/lib/request-stage";
 import { isUuid } from "@/lib/tokens";
 
-export async function advanceClientRequestStage(formData: FormData): Promise<void> {
+export async function advanceClientRequestStage(formData: FormData): Promise<MutationResult> {
   const requestId = String(formData.get("requestId") ?? "");
-  if (!isUuid(requestId)) redirect(clientHomePath);
+  if (!isUuid(requestId)) return { ok: false, error: stageAdvanceError() };
   if (!hasDatabaseEnv()) redirect("/client/login");
   const client = await requireClient();
-  const back = clientRequestPath(requestId);
   const moved = await moveRequestStage(requestId, client.id);
-  if (!moved.ok) redirect(`${back}?error=stage`);
+  if (!moved.ok) return { ok: false, error: stageAdvanceError() };
   revalidateStage(requestId);
-  redirect(`${back}?notice=stage`);
+  return { ok: true };
 }
 
-export async function advanceAdminRequestStage(formData: FormData): Promise<void> {
+export async function advanceAdminRequestStage(formData: FormData): Promise<MutationResult> {
   const requestId = String(formData.get("requestId") ?? "");
-  if (!isUuid(requestId)) redirect("/admin");
+  if (!isUuid(requestId)) return { ok: false, error: stageAdvanceError() };
   if (!hasDatabaseEnv()) redirect("/admin/login");
   await requireAdmin();
-  const back = adminRequestPath(requestId);
   const moved = await moveRequestStage(requestId, null);
-  if (!moved.ok) redirect(`${back}?error=stage`);
+  if (!moved.ok) return { ok: false, error: stageAdvanceError() };
   revalidateStage(requestId);
-  redirect(`${back}?notice=stage`);
+  return { ok: true };
 }
 
 /**

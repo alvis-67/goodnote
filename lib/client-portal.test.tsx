@@ -62,10 +62,12 @@ test("after creating a request, the client can open 我的請求 without signing
 
   const composer = readFileSync(new URL("../components/composer.tsx", import.meta.url), "utf8");
   const header = readFileSync(new URL("../components/client-header.tsx", import.meta.url), "utf8");
+  assert.match(composer, /rememberCreated\(prepared\.redirectTo\)/);
   assert.match(
     composer,
-    /if \(audience === "client" && mode === "create"\) \{\s*const navigation = navigationAfterCreate\(prepared\.redirectTo\);\s*window\.location\.replace\(navigation\.href\);\s*return;\s*\}/,
+    /if \(audience === "client" && mode === "create"\) \{\s*rememberCreated\(prepared\.redirectTo\);\s*const navigation = navigationAfterCreate\(prepared\.redirectTo\);\s*router\.replace\(navigation\.href\);\s*return;\s*\}/,
   );
+  assert.doesNotMatch(composer, /window\.location\.replace/);
   assert.match(header, /clientListHref\(pathname\)/);
   assert.match(header, /ClientListLink/);
   assert.match(header, /href=\{clientHomePath\}/);

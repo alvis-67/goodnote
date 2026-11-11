@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useLayoutEffect } from "react";
 
 import type { AuthResult } from "@/lib/actions/auth";
+import { browserViewStorage, clearViewCache } from "@/lib/view-cache";
 
 type LoginAction = (previous: AuthResult | null, formData: FormData) => Promise<AuthResult | null>;
 
@@ -19,10 +20,17 @@ export function LoginForm({
 }) {
   const initial: AuthResult | null = initialError ? { ok: false, error: initialError } : null;
   const [state, formAction, pending] = useActionState(action, initial);
+  useLayoutEffect(() => {
+    clearViewCache(browserViewStorage());
+  }, []);
   const error = state && !state.ok ? state.error : null;
   const label = field === "email" ? "電郵" : "登入名稱";
   return (
-    <form action={formAction} className="flex flex-col gap-4 rounded-3xl border border-line bg-card p-5 shadow-sm">
+    <form
+      action={formAction}
+      className="flex flex-col gap-4 rounded-3xl border border-line bg-card p-5 shadow-sm"
+      onSubmit={() => clearViewCache(browserViewStorage())}
+    >
       {initialNotice ? <p className="rounded-xl bg-ok-bg px-3 py-3 text-sm text-ok">{initialNotice}</p> : null}
       <label className="flex flex-col gap-2 text-sm font-semibold">
         {label}

@@ -38,6 +38,16 @@
     font-family: var(--font-sans);
   }
 
+  a,
+  button {
+    touch-action: manipulation;
+  }
+
+  a[href]:active,
+  button:not(:disabled):active {
+    opacity: 0.72;
+  }
+
   button,
   input,
   textarea,
