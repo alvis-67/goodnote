@@ -65,7 +65,7 @@ export default async function ClientRequestPage({
         </section>
       ) : null}
       <div className="mt-5">
-        <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} topic={request.topic} />
+        <Thread messages={thread.messages} attachments={thread.attachments} urls={urls} />
       </div>
     </main>
   );

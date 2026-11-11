@@ -87,6 +87,7 @@ test("the timeline and prompts use the same stage titles", () => {
   assert.match(stageAdvanceNote(), /待處理/);
   assert.match(stageAdvancedNotice(), /已進入下一階段/);
   assert.match(stageAdvancedNotice(), /待處理/);
+  assert.doesNotMatch(stageAdvancedNotice(), /時間線/);
   assert.match(stageAdvanceError(), /未能進入下一階段/);
   assert.equal(adminStagePrompt("甲工程公司", "quote", "quote"), "你可以為甲工程公司出報價單。");
   assert.equal(adminStagePrompt("甲工程公司", "quote", "invoice"), "你可以為甲工程公司出發票。");

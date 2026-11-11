@@ -47,10 +47,6 @@ export function statusAssignments(): Array<[StatusId, StatusId]> {
   return pairs;
 }
 
-export function statusChangeText(from: StatusId, to: StatusId): string {
-  return `狀態由${statusLabel(from)}改為${statusLabel(to)}`;
-}
-
 export function isDeleteConfirmed(value: unknown): boolean {
   return value === DELETE_CONFIRM_VALUE;
 }
