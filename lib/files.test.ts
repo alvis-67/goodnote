@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   MAX_FILE_BYTES,
   MAX_FILES,
+  appendPickedFiles,
   buildStoragePath,
   parseStoragePath,
   resolveFile,
@@ -21,6 +22,43 @@ test("accepts a phone photo even when the browser omits the mime type", () => {
 
 test("rejects a mime that does not match the extension", () => {
   assert.equal(resolveFile({ name: "quote.pdf", type: "image/png", size: 100 }), null);
+});
+
+test("a chosen file is kept, and a file that cannot be added is rejected immediately", () => {
+  const current = [{ name: "已有.pdf", type: "application/pdf", size: 20 }];
+  const photo = appendPickedFiles(current, [{ name: "單據.HEIC", type: "", size: 1200 }]);
+  assert.equal(photo.error, null);
+  assert.deepEqual(
+    photo.files.map((file) => file.name),
+    ["已有.pdf", "單據.HEIC"],
+  );
+  assert.deepEqual(current, [{ name: "已有.pdf", type: "application/pdf", size: 20 }]);
+
+  const mixed = appendPickedFiles([], [
+    { name: "報價.pdf", type: "application/pdf", size: 4096 },
+    { name: "太大.pdf", type: "application/pdf", size: MAX_FILE_BYTES + 1 },
+    { name: "病毒.exe", type: "application/octet-stream", size: 50 },
+    { name: "空白.txt", type: "text/plain", size: 0 },
+  ]);
+  assert.deepEqual(
+    mixed.files.map((file) => file.name),
+    ["報價.pdf"],
+  );
+  assert.match(mixed.error ?? "", /「太大\.pdf」超過 20MB。/);
+  assert.match(mixed.error ?? "", /「病毒\.exe」的格式不支援。請上載相片、PDF 或常見的文件。/);
+  assert.match(mixed.error ?? "", /「空白\.txt」是空檔案，未能加入。/);
+
+  const full = appendPickedFiles(
+    Array.from({ length: MAX_FILES }, (_, index) => ({
+      name: `${index}.pdf`,
+      type: "application/pdf",
+      size: 10,
+    })),
+    [{ name: "多一個.pdf", type: "application/pdf", size: 10 }],
+  );
+  assert.equal(full.files.length, MAX_FILES);
+  assert.match(full.error ?? "", /最多上載 8 個檔案。/);
+  assert.equal(validateFiles([{ name: "空白.txt", type: "text/plain", size: 0 }]), "「空白.txt」是空檔案，未能加入。");
 });
 
 test("rejects oversized and too many files with a Chinese message", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { deleteReplyPreset, finalizeAdminUploads, prepareAdminReply, saveReplyPreset } from "@/lib/actions/admin";
@@ -12,7 +12,14 @@ import { navigationAfterCreate } from "@/lib/client-nav";
 import { TOPICS, type TopicId } from "@/lib/domain";
 import type { ReplyPresetRecord } from "@/lib/reply-presets";
 import { formatBytes } from "@/lib/format";
-import { acceptAttribute, MAX_FILES, validateFiles, type FileMeta } from "@/lib/files";
+import {
+  acceptAttribute,
+  appendPickedFiles,
+  displayFileName,
+  MAX_FILES,
+  validateFiles,
+  type FileMeta,
+} from "@/lib/files";
 import { isUuid } from "@/lib/tokens";
 import { browserViewStorage, rememberProvisionalClientRequest } from "@/lib/view-cache";
 import { MAX_WORK_LOCATION_LENGTH, parseWorkLocation } from "@/lib/work-location";
@@ -35,10 +42,23 @@ export function Composer(props: ComposerProps) {
   const [continueHref, setContinueHref] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
+  const pickedRef = useRef<HTMLDivElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
 
-  function addFiles(list: FileList | null) {
-    if (!list) return;
-    setFiles((current) => [...current, ...Array.from(list)].slice(0, MAX_FILES));
+  useEffect(() => {
+    const target = error ? errorRef.current : pickedRef.current;
+    target?.scrollIntoView({ block: "nearest" });
+  }, [error, files]);
+
+  function addPickedFiles(picked: readonly File[]) {
+    if (picked.length === 0) return;
+    const next = appendPickedFiles(files, picked);
+    setFiles(next.files);
+    setError(next.error);
+  }
+
+  function removeFile(index: number) {
+    setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
   }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -253,54 +273,66 @@ export function Composer(props: ComposerProps) {
       </label>
 
       <div>
-        <label className="inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-line bg-white px-4 py-2 text-sm font-semibold">
-          上載檔案
+        <label className="relative inline-flex min-h-11 cursor-pointer items-center overflow-hidden rounded-xl border border-line bg-white px-4 py-2 text-sm font-semibold focus-within:border-stamp">
+          <span className="pointer-events-none">上載檔案</span>
           <input
             type="file"
             multiple
             accept={acceptAttribute()}
-            className="sr-only"
+            className="absolute inset-0 z-10 block h-full w-full cursor-pointer opacity-0"
             onChange={(event) => {
-              addFiles(event.target.files);
-              event.target.value = "";
+              const input = event.currentTarget;
+              const picked = Array.from(input.files ?? []);
+              input.value = "";
+              addPickedFiles(picked);
             }}
           />
         </label>
-        <p className="mt-2 text-sm text-muted">可上載相片、PDF 或 Word / Excel。每個檔案上限 20MB，最多 {MAX_FILES} 個。</p>
         {files.length > 0 ? (
-          <ul className="mt-3 flex flex-col gap-2">
-            {files.map((file, index) => (
-              <li key={`${file.name}-${file.size}-${index}`} className="flex items-center justify-between gap-3 rounded-xl bg-paper px-3 py-2 text-sm">
-                <span className="truncate">
-                  {file.name}
-                  <span className="ml-2 text-muted">{formatBytes(file.size)}</span>
-                </span>
-                <button
-                  type="button"
-                  className="shrink-0 font-semibold text-stamp"
-                  onClick={() => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-                >
-                  移除
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div ref={pickedRef} className="mt-3 scroll-mb-4">
+            <p role="status" className="text-sm font-semibold">
+              已選擇 {files.length} 個檔案
+            </p>
+            <ul className="mt-2 flex flex-col gap-2">
+              {files.map((file, index) => {
+                const name = displayFileName(file.name);
+                return (
+                  <li
+                    key={`${name}-${file.size}-${file.lastModified}-${index}`}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-line bg-white px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 break-all">
+                      <span className="font-semibold">{name}</span>
+                      <span className="mt-0.5 block text-muted">{formatBytes(file.size)}</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="min-h-11 shrink-0 px-2 font-semibold text-stamp"
+                      onClick={() => removeFile(index)}
+                    >
+                      移除
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         ) : null}
+        {error ? (
+          <p ref={errorRef} role="alert" className="mt-3 scroll-mb-4 whitespace-pre-line rounded-xl bg-danger-bg px-3 py-3 text-sm text-danger">
+            {error}
+            {continueHref ? (
+              <>
+                {" "}
+                <InstantLink href={continueHref} className="font-semibold underline">
+                  開啟請求
+                </InstantLink>
+              </>
+            ) : null}
+          </p>
+        ) : null}
+        <p className="mt-2 text-sm text-muted">可上載相片、PDF 或 Word / Excel。每個檔案上限 20MB，最多 {MAX_FILES} 個。</p>
       </div>
-
-      {error ? (
-        <p role="alert" className="rounded-xl bg-danger-bg px-3 py-3 text-sm text-danger">
-          {error}
-          {continueHref ? (
-            <>
-              {" "}
-              <InstantLink href={continueHref} className="font-semibold underline">
-                開啟請求
-              </InstantLink>
-            </>
-          ) : null}
-        </p>
-      ) : null}
 
       <button
         type="submit"
