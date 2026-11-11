@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { finalizeAdminUploads, prepareAdminReply, saveReplyPreset } from "@/lib/actions/admin";
+import { deleteReplyPreset, finalizeAdminUploads, prepareAdminReply, saveReplyPreset } from "@/lib/actions/admin";
 import { finalizeClientUploads, prepareClientRequest } from "@/lib/actions/client";
 import { InstantLink } from "@/components/instant-link";
 import { ReplyPresetPicker } from "@/components/reply-preset-picker";
@@ -231,7 +231,13 @@ export function Composer(props: ComposerProps) {
       ) : null}
 
       {mode === "reply" ? (
-        <ReplyPresetPicker presets={presets} body={body} onFill={setBody} savePreset={saveReplyPreset} />
+        <ReplyPresetPicker
+          presets={presets}
+          body={body}
+          onFill={setBody}
+          savePreset={saveReplyPreset}
+          deletePreset={deleteReplyPreset}
+        />
       ) : null}
 
       <label className="flex flex-col gap-2 text-sm font-semibold">

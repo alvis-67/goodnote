@@ -6,6 +6,7 @@ import { InstantLink } from "@/components/instant-link";
 import { deleteRequest, setRequestStatus } from "@/lib/actions/admin";
 import { advanceAdminRequestStage } from "@/lib/actions/stage";
 import { AdvanceStage, StagePrompt } from "@/components/advance-stage";
+import { ClientPhone } from "@/components/client-phone";
 import { Composer } from "@/components/composer";
 import { DeleteRequest } from "@/components/delete-request";
 import { DocumentChain } from "@/components/document-chain";
@@ -81,7 +82,7 @@ export default async function AdminRequestPage({
         <p className="text-sm text-muted">客戶</p>
         <h1 className="mt-1 text-xl font-semibold">{client.company_name}</h1>
         {client.contact_name ? <p className="mt-2 text-sm">{client.contact_name}</p> : null}
-        {client.phone ? <p className="text-sm">{client.phone}</p> : null}
+        {client.phone ? <ClientPhone phone={client.phone} /> : null}
         {client.notes ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted">{client.notes}</p> : null}
         <InstantLink href="/admin/clients" className="mt-4 inline-flex text-sm font-semibold text-navy">
           全部客戶

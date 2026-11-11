@@ -14,19 +14,36 @@ export type SaveReplyPresetResult =
   | { ok: true; preset: ReplyPresetRecord | null; builtin: boolean }
   | { ok: false; error: string };
 
+export type DeleteReplyPresetResult = { ok: true } | { ok: false; error: string };
+
 export type ReplyPresetOption = {
   id: string;
   label: string;
   body?: string;
 };
 
+export function replyPresetLabel(body: string): string {
+  return body.replace(/\s+/g, " ").trim();
+}
+
+export function replyPresetDeleteName(body: string): string {
+  const label = replyPresetLabel(body);
+  if (label.length <= 80) return label;
+  return `${label.slice(0, 80)}…`;
+}
+
+export function deletableReplyPresets(saved: readonly ReplyPresetRecord[]): ReplyPresetRecord[] {
+  return saved.filter(
+    (item) => item.body.trim() && item.body !== BUILTIN_REPLY_PRESET && item.id !== BUILTIN_REPLY_PRESET_ID,
+  );
+}
+
 export function replyPresetOptions(saved: readonly ReplyPresetRecord[]): ReplyPresetOption[] {
-  const custom = saved.filter((item) => item.body.trim() && item.body !== BUILTIN_REPLY_PRESET);
   return [
     { id: BUILTIN_REPLY_PRESET_ID, label: BUILTIN_REPLY_PRESET, body: BUILTIN_REPLY_PRESET },
-    ...custom.map((item) => ({
+    ...deletableReplyPresets(saved).map((item) => ({
       id: item.id,
-      label: item.body.replace(/\s+/g, " ").trim(),
+      label: replyPresetLabel(item.body),
       body: item.body,
     })),
     { id: CREATE_REPLY_PRESET_ID, label: "新增" },
@@ -90,4 +107,23 @@ export async function commitNewReplyPreset(
     presets: presetsAfterSave(current, saved.preset),
     fill: saved.preset.body,
   };
+}
+
+export function presetsAfterDelete(current: readonly ReplyPresetRecord[], id: string): ReplyPresetRecord[] {
+  const kept = deletableReplyPresets(current);
+  if (id === BUILTIN_REPLY_PRESET_ID) return kept;
+  return kept.filter((item) => item.id !== id);
+}
+
+export async function commitDeleteReplyPreset(
+  id: string,
+  current: readonly ReplyPresetRecord[],
+  remove: (id: string) => Promise<DeleteReplyPresetResult>,
+): Promise<{ ok: true; presets: ReplyPresetRecord[] } | { ok: false; error: string }> {
+  if (!deletableReplyPresets(current).some((item) => item.id === id)) {
+    return { ok: false, error: "這個預設回覆不能刪除。" };
+  }
+  const removed = await remove(id);
+  if (!removed.ok) return removed;
+  return { ok: true, presets: presetsAfterDelete(current, id) };
 }
