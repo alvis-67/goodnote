@@ -4,16 +4,10 @@ import { dbErrorCode, sql } from "@/lib/db";
 import { MAX_BODY_LENGTH, MAX_FILES, validateFiles, type FileMeta } from "@/lib/files";
 import { parseMessageBody } from "@/lib/clients";
 import { isUuid } from "@/lib/tokens";
+import type { UploadTicket } from "@/lib/upload-plan";
 
+export type { UploadTicket };
 export type ActionFailure = { ok: false; error: string; redirectTo?: string };
-export type UploadTicket = {
-  path: string;
-  url: string;
-  method: "PUT";
-  headers: Record<string, string>;
-  contentType: string;
-  fileName: string;
-};
 export type PrepareSuccess = {
   ok: true;
   redirectTo: string;

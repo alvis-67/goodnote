@@ -174,6 +174,8 @@ test("choosing a file shows its name before anything is uploaded", () => {
   assert.match(composer, /已選擇 \{files\.length\} 個檔案/);
   assert.match(composer, /formatBytes\(file\.size\)/);
   assert.match(composer, /移除/);
-  assert.match(composer, /method: ticket\.method/);
+  assert.match(composer, /sameOriginPartPlan\(/);
+  assert.match(composer, /credentials: "same-origin"/);
+  assert.doesNotMatch(composer, /ticket\.url/);
   assert.doesNotMatch(fileInput, /fetch\(/);
 });
