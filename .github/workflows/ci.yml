@@ -27,17 +27,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Install PostgreSQL client
-        run: |
-          for attempt in 1 2 3; do
-            if sudo apt-get update && sudo apt-get install -y postgresql-client; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              exit 1
-            fi
-            sleep 20
-          done
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - run: npm test
       - run: npm run lint
       - run: npm run test:schema
