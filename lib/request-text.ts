@@ -316,8 +316,21 @@ function normalize(input: string): string {
   return input.replace(/^\uFEFF/, "").replace(/\u3000/g, " ").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
+/** Remark and clause lines are left out, then spaces are removed, before topic phrases are matched. */
+export function topicSearchText(input: string): string {
+  return stripRemarks(input).replace(/\s+/g, "");
+}
+
+/**
+ * Office wording that still means 搵管理處 when no saved phrase matched.
+ * Accepted pastes do not have to contain the exact words 搵管理處.
+ */
+export function isManagementOfficeRequest(input: string): boolean {
+  return isManagementWork(input);
+}
+
 function inferTopic(input: string): TopicReading {
-  const compact = stripRemarks(input).replace(/\s+/g, "");
+  const compact = topicSearchText(input);
   const explicit = earliestTopic([
     { at: searchIndex(compact, /出報價單|報價單|出報價/), topic: "quote" },
     { at: searchIndex(compact, /出收據|請出收據|已收錢|已收妥|已付款/), topic: "receipt" },

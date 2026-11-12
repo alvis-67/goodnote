@@ -4,6 +4,7 @@ import { cache } from "react";
 
 import { clientCanAccess } from "@/lib/auth/access";
 import { currentClient, requireAdmin } from "@/lib/auth";
+import { readSession } from "@/lib/auth/session";
 import type { ClientRow, InboxRow, MessageRow, RequestRow } from "@/lib/database.types";
 import { dbErrorCode, sql } from "@/lib/db";
 import type { ChainLink } from "@/lib/document-chain";
@@ -13,6 +14,7 @@ import { isLegalStage, isStageId } from "@/lib/request-stage";
 import { hasDatabaseEnv, isDeskReady } from "@/lib/env";
 import { asBool, asIso, asText } from "@/lib/rows";
 import { BUILTIN_REPLY_PRESET, type ReplyPresetRecord } from "@/lib/reply-presets";
+import type { TopicRuleRecord } from "@/lib/topic-rules";
 import { isUuid } from "@/lib/tokens";
 import { displayWorkLocation } from "@/lib/work-location";
 
@@ -405,6 +407,29 @@ export async function listReplyPresets(): Promise<ReplyPresetRecord[]> {
     });
   } catch (error) {
     console.error("reply preset list failed", dbErrorCode(error));
+    return [];
+  }
+}
+
+export async function listTopicRules(): Promise<TopicRuleRecord[]> {
+  if (!isDeskReady()) return [];
+  const session = await readSession();
+  if (!session) return [];
+  try {
+    const rows = await sql()`
+      select id, phrase, topic
+      from topic_rules
+      order by created_at asc, id asc
+    `;
+    return rows.flatMap((row) => {
+      const id = String(row.id ?? "");
+      const phrase = asText(row.phrase)?.trim() ?? "";
+      const topic = asText(row.topic) ?? "";
+      if (!isUuid(id) || !phrase || !isTopicId(topic)) return [];
+      return [{ id, phrase, topic }];
+    });
+  } catch (error) {
+    console.error("topic rule list failed", dbErrorCode(error));
     return [];
   }
 }

@@ -152,7 +152,8 @@ test("the client request page has no follow-up composer", () => {
   assert.doesNotMatch(detail, /Composer/);
   assert.doesNotMatch(detail, /prepareClientReply/);
 
-  assert.match(create, /<Composer audience="client" mode="create" \/>/);
+  assert.match(create, /topicPhrasesForClient\(await listTopicRules\(\)\)/);
+  assert.match(create, /<Composer audience="client" mode="create" topicRules=\{topicRules\} \/>/);
   assert.match(admin, /<h3 className="font-semibold">回覆<\/h3>/);
   assert.match(admin, /可以附上已完成的報價、發票或收據/);
   assert.match(admin, /<Composer audience="admin" mode="reply" requestId=\{request\.id\} presets=\{presets\} \/>/);

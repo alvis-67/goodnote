@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { FILE_RULES, MAX_FILE_BYTES, STORAGE_BUCKET } from "./files";
 import { STATUSES } from "./domain";
+import { DEFAULT_TOPIC_RULES, MAX_TOPIC_RULE_PHRASE_LENGTH } from "./topic-rules";
 import { MAX_WORK_LOCATION_LENGTH } from "./work-location";
 
 const sql = readFileSync(new URL("../db/migrations/0001_init.sql", import.meta.url), "utf8");
@@ -15,6 +16,7 @@ const stageSql = readFileSync(new URL("../db/migrations/0006_request_stage.sql",
 const titleSql = readFileSync(new URL("../db/migrations/0007_stage_titles.sql", import.meta.url), "utf8");
 const statusSetSql = readFileSync(new URL("../db/migrations/0008_request_statuses.sql", import.meta.url), "utf8");
 const topicSql = readFileSync(new URL("../db/migrations/0009_topics_and_reply_presets.sql", import.meta.url), "utf8");
+const ruleSql = readFileSync(new URL("../db/migrations/0010_topic_rules.sql", import.meta.url), "utf8");
 const schemaScript = readFileSync(new URL("../scripts/test-schema.sh", import.meta.url), "utf8");
 const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
@@ -201,6 +203,31 @@ test("new topics keep the old stage paths and reply presets are shared rows", ()
   assert.match(readme, /0009_topics_and_reply_presets\.sql/);
   assert.match(readme, /搵管理處/);
   assert.match(readme, /買保險/);
+});
+
+test("topic rules are shared phrases and the default list is seeded", () => {
+  assert.match(ruleSql, /DATABASE_URL_UNPOOLED/);
+  assert.match(ruleSql, /0009_topics_and_reply_presets\.sql/);
+  assert.match(ruleSql, /create table public\.topic_rules/);
+  assert.match(ruleSql, /constraint topic_rules_phrase_key unique \(phrase\)/);
+  assert.match(ruleSql, new RegExp(`char_length\\(phrase\\) between 1 and ${MAX_TOPIC_RULE_PHRASE_LENGTH}`));
+  assert.match(ruleSql, /topic in \('quote', 'invoice', 'receipt', 'management', 'insurance', 'other'\)/);
+  assert.match(ruleSql, /create index topic_rules_created_idx/);
+  assert.equal("搵".codePointAt(0), 0x6435);
+  assert.equal(DEFAULT_TOPIC_RULES.length, 19);
+  for (const rule of DEFAULT_TOPIC_RULES) {
+    assert.match(ruleSql, new RegExp(`\\('${rule.phrase}', '${rule.topic}'`));
+    assert.equal(rule.phrase.includes("僱"), false);
+  }
+  assert.match(ruleSql, /'搵管理處', 'management'/);
+  assert.doesNotMatch(ruleSql, /insert\s+into\s+public\.requests/i);
+  assert.doesNotMatch(ruleSql, /insert\s+into\s+public\.clients/i);
+  assert.doesNotMatch(ruleSql, /update\s+(public\.)?requests/i);
+  assert.doesNotMatch(ruleSql, /neon_auth\./);
+  assert.doesNotMatch(ruleSql, /postgres:\/\//i);
+  assert.doesNotMatch(ruleSql, /password/i);
+  assert.match(readme, /0010_topic_rules\.sql/);
+  assert.match(schemaScript, /db\/migrations\/\*\.sql/);
 });
 
 test("deleting a request cascades to messages, attachments, and notifications", () => {

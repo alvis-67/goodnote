@@ -5,12 +5,24 @@ import { useRouter } from "next/navigation";
 
 import { deleteReplyPreset, finalizeAdminUploads, prepareAdminReply, saveReplyPreset } from "@/lib/actions/admin";
 import { finalizeClientUploads, prepareClientRequest } from "@/lib/actions/client";
+import { CreateRequestInsights } from "@/components/create-request-insights";
 import { InstantLink } from "@/components/instant-link";
 import { ReplyPresetPicker } from "@/components/reply-preset-picker";
 import { useCacheScope } from "@/components/view-cache-provider";
 import { navigationAfterCreate } from "@/lib/client-nav";
-import { TOPICS, type TopicId } from "@/lib/domain";
+import { TOPICS } from "@/lib/domain";
+import { parseRequestText } from "@/lib/request-text";
 import type { ReplyPresetRecord } from "@/lib/reply-presets";
+import {
+  classifySchedule,
+  classifyTopicWithRules,
+  initialTopicSelection,
+  nextWorksiteValue,
+  selectTopicManually,
+  topicSelectionAfterMatch,
+  type TopicPhraseRule,
+  type TopicSelection,
+} from "@/lib/topic-rules";
 import { formatBytes } from "@/lib/format";
 import {
   acceptAttribute,
@@ -26,7 +38,7 @@ import { browserViewStorage, rememberProvisionalClientRequest } from "@/lib/view
 import { MAX_WORK_LOCATION_LENGTH, parseWorkLocation } from "@/lib/work-location";
 
 type ComposerProps =
-  | { audience: "client"; mode: "create" }
+  | { audience: "client"; mode: "create"; topicRules: readonly TopicPhraseRule[] }
   | { audience: "admin"; mode: "reply"; requestId: string; presets?: readonly ReplyPresetRecord[] };
 
 async function sendPreparedFile(
@@ -74,11 +86,17 @@ export function Composer(props: ComposerProps) {
   const { audience, mode } = props;
   const requestId = props.audience === "admin" ? props.requestId : undefined;
   const presets = props.audience === "admin" ? (props.presets ?? []) : [];
+  const topicRules = props.audience === "client" ? props.topicRules : [];
   const router = useRouter();
   const scope = useCacheScope();
-  const [topic, setTopic] = useState<TopicId | null>(null);
+  const [selection, setSelection] = useState<TopicSelection>(() => initialTopicSelection());
   const [workLocation, setWorkLocation] = useState("");
   const [body, setBody] = useState("");
+  const [settledBody, setSettledBody] = useState("");
+  const topic = selection.topic;
+  const worksiteEdited = useRef(false);
+  const pastedRef = useRef(false);
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [continueHref, setContinueHref] = useState<string | null>(null);
@@ -91,6 +109,49 @@ export function Composer(props: ComposerProps) {
     const target = error ? errorRef.current : pickedRef.current;
     target?.scrollIntoView({ block: "nearest" });
   }, [error, files]);
+
+  useEffect(() => {
+    return () => {
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+    };
+  }, []);
+
+  function settleDraft(nextBody: string) {
+    setSettledBody(nextBody);
+    const match = classifyTopicWithRules(nextBody, topicRules);
+    setSelection((current) => topicSelectionAfterMatch(current, match));
+    const parsedSite = parseRequestText(nextBody).worksite;
+    setWorkLocation((current) => nextWorksiteValue(current, parsedSite, worksiteEdited.current));
+  }
+
+  function scheduleDraft(nextBody: string, reason: "input" | "paste") {
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    const delay = classifySchedule(reason).delay;
+    if (delay === 0) {
+      settleDraft(nextBody);
+      return;
+    }
+    draftTimer.current = setTimeout(() => settleDraft(nextBody), delay);
+  }
+
+  function onBodyChange(value: string) {
+    setBody(value);
+    if (mode !== "create") return;
+    const reason = pastedRef.current ? "paste" : "input";
+    pastedRef.current = false;
+    scheduleDraft(value, reason);
+  }
+
+  function onWorkLocationChange(value: string) {
+    if (!value.trim()) {
+      worksiteEdited.current = false;
+      const parsedSite = parseRequestText(settledBody).worksite;
+      setWorkLocation(nextWorksiteValue("", parsedSite, false));
+      return;
+    }
+    worksiteEdited.current = true;
+    setWorkLocation(value);
+  }
 
   function addPickedFiles(picked: readonly File[]) {
     if (picked.length === 0) return;
@@ -245,6 +306,33 @@ export function Composer(props: ComposerProps) {
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      {mode === "reply" ? (
+        <ReplyPresetPicker
+          presets={presets}
+          body={body}
+          onFill={setBody}
+          savePreset={saveReplyPreset}
+          deletePreset={deleteReplyPreset}
+        />
+      ) : null}
+
+      <label className="flex flex-col gap-2 text-sm font-semibold">
+        內容
+        <textarea
+          value={body}
+          onPaste={() => {
+            pastedRef.current = true;
+          }}
+          onChange={(event) => onBodyChange(event.target.value)}
+          rows={5}
+          maxLength={4000}
+          placeholder="例如：請根據附件的工程單出報價，抬頭用公司全名。"
+          className="rounded-2xl border border-line bg-white px-3 py-3 font-normal leading-7"
+        />
+      </label>
+
+      {mode === "create" ? <CreateRequestInsights body={settledBody} rules={topicRules} topic={topic} /> : null}
+
       {mode === "create" ? (
         <fieldset>
           <legend className="text-sm font-semibold">事項</legend>
@@ -263,7 +351,9 @@ export function Composer(props: ComposerProps) {
                     name="topic"
                     value={item.id}
                     checked={selected}
-                    onChange={() => setTopic(item.id)}
+                    onChange={() =>
+                      setSelection(selectTopicManually(item.id, classifyTopicWithRules(body, topicRules)))
+                    }
                     className="sr-only"
                   />
                   <span className="block text-base font-semibold">{item.label}</span>
@@ -280,7 +370,7 @@ export function Composer(props: ComposerProps) {
           工作地點
           <input
             value={workLocation}
-            onChange={(event) => setWorkLocation(event.target.value)}
+            onChange={(event) => onWorkLocationChange(event.target.value)}
             type="text"
             name="workLocation"
             inputMode="text"
@@ -292,28 +382,6 @@ export function Composer(props: ComposerProps) {
           />
         </label>
       ) : null}
-
-      {mode === "reply" ? (
-        <ReplyPresetPicker
-          presets={presets}
-          body={body}
-          onFill={setBody}
-          savePreset={saveReplyPreset}
-          deletePreset={deleteReplyPreset}
-        />
-      ) : null}
-
-      <label className="flex flex-col gap-2 text-sm font-semibold">
-        內容
-        <textarea
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          rows={5}
-          maxLength={4000}
-          placeholder="例如：請根據附件的工程單出報價，抬頭用公司全名。"
-          className="rounded-2xl border border-line bg-white px-3 py-3 font-normal leading-7"
-        />
-      </label>
 
       <div>
         <label className="relative inline-flex min-h-11 cursor-pointer items-center overflow-hidden rounded-xl border border-line bg-white px-4 py-2 text-sm font-semibold focus-within:border-stamp">

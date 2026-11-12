@@ -1518,4 +1518,98 @@ select pg_temp.expect(
   'deleting a missing client does not remove requests'
 );
 
+select pg_temp.expect(
+  (select count(*) = 19 from public.topic_rules),
+  'default topic rules are seeded'
+);
+select pg_temp.expect(
+  (select topic = 'invoice' from public.topic_rules where phrase = '出單收錢'),
+  '出單收錢 is an invoice rule'
+);
+select pg_temp.expect(
+  (select topic = 'invoice' from public.topic_rules where phrase = '收錢'),
+  '收錢 is an invoice rule'
+);
+select pg_temp.expect(
+  (select topic = 'receipt' from public.topic_rules where phrase = '已收錢'),
+  '已收錢 is a receipt rule'
+);
+select pg_temp.expect(
+  (select topic = 'quote' from public.topic_rules where phrase = '出報價單'),
+  '出報價單 is a quote rule'
+);
+select pg_temp.expect(
+  (select topic = 'management' and ascii(phrase) = 25653 from public.topic_rules where phrase = '搵管理處'),
+  '搵管理處 uses U+6435'
+);
+select pg_temp.expect(
+  (select topic = 'insurance' from public.topic_rules where phrase = '買保險'),
+  '買保險 is an insurance rule'
+);
+select pg_temp.expect(
+  (select count(*) = 1
+   from public.topic_rules
+   where phrase = '搵管理處'
+     and topic = 'management'),
+  'deleting a client leaves shared topic rules in place'
+);
+
+do $$
+begin
+  insert into public.topic_rules (phrase, topic) values ('收錢', 'receipt');
+  raise exception 'FAIL: duplicate topic rule stored';
+exception
+  when unique_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  insert into public.topic_rules (phrase, topic) values ('   ', 'other');
+  raise exception 'FAIL: blank topic rule stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  insert into public.topic_rules (phrase, topic) values ('測試事項', 'quotation');
+  raise exception 'FAIL: invalid topic rule stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+delete from public.topic_rules where phrase = '投保';
+
+select pg_temp.expect(
+  (select count(*) = 0 from public.topic_rules where phrase = '投保'),
+  'deleting a topic rule removes that phrase'
+);
+select pg_temp.expect(
+  (select count(*) = 18 from public.topic_rules),
+  'deleting a topic rule leaves the other phrases'
+);
+select pg_temp.expect(
+  (select count(*) = 1 from public.clients where id = '22222222-2222-4222-8222-222222222222'),
+  'deleting a topic rule leaves client accounts in place'
+);
+select pg_temp.expect(
+  (select count(*) = 1 from public.requests where id = 'abababab-abab-4bab-8bab-abababababab'),
+  'deleting a topic rule does not remove requests'
+);
+
 rollback;
