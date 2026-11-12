@@ -8,9 +8,11 @@ import { DocumentChain } from "@/components/document-chain";
 import { LiveRequest } from "@/components/live-request";
 import { MarkClientRead } from "@/components/mark-read";
 import { RememberClientDetail } from "@/components/remember-view";
+import { RequestBreakdown } from "@/components/request-breakdown";
 import { Thread } from "@/components/thread";
 import { getClientRequest, loadClientRequestChain, loadClientThread } from "@/lib/data";
 import { isDeskReady } from "@/lib/env";
+import { parseRequestText, requestSourceText, worksiteToShow } from "@/lib/request-text";
 import { clientRequestPath } from "@/lib/paths";
 import { stageAdvanceError, stageAdvanceLabel, stageAdvanceNote, stageAdvancedNotice } from "@/lib/request-stage";
 import { toCachedClientDetail, toCachedClientRequest } from "@/lib/view-cache";
@@ -32,6 +34,8 @@ export default async function ClientRequestPage({
     loadClientThread(id),
   ]);
   if (!request) notFound();
+  const parsed = parseRequestText(requestSourceText(thread.messages) ?? "");
+  const worksite = worksiteToShow(request.work_location, parsed.worksite);
   const advanceLabel = stageAdvanceLabel(request.topic, request.stage);
 
   const cachedRequest = toCachedClientRequest({ ...request, parent: chain.parent, child: chain.child });
@@ -57,7 +61,7 @@ export default async function ClientRequestPage({
         stage={request.stage}
         status={request.status}
         createdAt={request.created_at}
-        location={request.work_location}
+        location={worksite}
       />
       <DocumentChain parent={chain.parent} child={chain.child} hrefFor={clientRequestPath} />
       {query.notice === "stage" ? (
@@ -78,6 +82,7 @@ export default async function ClientRequestPage({
         </section>
       ) : null}
       </LiveRequest>
+      <RequestBreakdown parsed={parsed} currentTopic={request.topic} audience="client" />
       <div className="mt-5">
         <Thread messages={thread.messages} attachments={thread.attachments} />
       </div>

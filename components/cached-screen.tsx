@@ -6,9 +6,11 @@ import { ClientRequestHeading } from "@/components/client-request-heading";
 import { ClientRequestList } from "@/components/client-request-list";
 import { DocumentChain } from "@/components/document-chain";
 import { InstantLink } from "@/components/instant-link";
+import { RequestBreakdown } from "@/components/request-breakdown";
 import { StatusBadge } from "@/components/status-badge";
 import { Thread } from "@/components/thread";
 import { WorkLocation } from "@/components/work-location";
+import { parseRequestText, requestSourceText, worksiteToShow } from "@/lib/request-text";
 import type { MessageRow } from "@/lib/database.types";
 import { excerpt, formatRelative } from "@/lib/format";
 import { adminRequestPath, clientRequestPath } from "@/lib/paths";
@@ -73,6 +75,8 @@ export function CachedPaintView({ paint, role }: { paint: CachedPaint; role: Cac
 
   if (paint.kind === "client-detail") {
     const request = paint.detail.request;
+    const parsed = parseRequestText(requestSourceText(paint.detail.messages) ?? "");
+    const worksite = worksiteToShow(request.work_location, parsed.worksite);
     return (
       <main>
         <Refreshing />
@@ -81,9 +85,10 @@ export function CachedPaintView({ paint, role }: { paint: CachedPaint; role: Cac
           stage={request.stage}
           status={request.status}
           createdAt={request.created_at}
-          location={request.work_location}
+          location={worksite}
         />
         <DocumentChain parent={request.parent} child={request.child} hrefFor={clientRequestPath} />
+        <RequestBreakdown parsed={parsed} currentTopic={request.topic} audience="client" />
         <div className="mt-5">
           {paint.partial ? <p className="text-sm text-muted">正在載入紀錄…</p> : <CachedThread detail={paint.detail} />}
         </div>
@@ -138,17 +143,20 @@ export function CachedPaintView({ paint, role }: { paint: CachedPaint; role: Cac
   }
 
   const request = paint.detail.request;
+  const parsed = parseRequestText(requestSourceText(paint.detail.messages) ?? "");
+  const worksite = worksiteToShow(request.work_location, parsed.worksite);
   return (
     <main>
       <Refreshing />
       <p className="text-sm text-muted">客戶</p>
       <h1 className="mt-1 text-xl font-semibold">{paint.detail.company_name}</h1>
       <h2 className="mt-4 text-2xl font-semibold">{requestTitle(request.topic, request.stage)}</h2>
-      <WorkLocation location={request.work_location} />
+      <WorkLocation location={worksite} />
       <div className="mt-3">
         <StatusBadge status={request.status} />
       </div>
       {role === "admin" ? <DocumentChain parent={request.parent} child={request.child} hrefFor={adminRequestPath} className="mt-4 rounded-2xl bg-desk-card px-4 py-4" /> : null}
+      <RequestBreakdown parsed={parsed} currentTopic={request.topic} audience={role === "admin" ? "admin" : "client"} />
       <div className="mt-5">
         {paint.partial ? <p className="text-sm text-muted">正在載入紀錄…</p> : <CachedThread detail={paint.detail} />}
       </div>

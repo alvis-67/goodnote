@@ -131,8 +131,10 @@ test("the request list shows each request's work location", () => {
 
   const detail = readFileSync(new URL("../app/client/(portal)/requests/[id]/page.tsx", import.meta.url), "utf8");
   const admin = readFileSync(new URL("../app/admin/(desk)/requests/[id]/page.tsx", import.meta.url), "utf8");
-  assert.match(detail, /location=\{request\.work_location\}/);
-  assert.match(admin, /<WorkLocation location=\{request\.work_location\} \/>/);
+  assert.match(detail, /worksiteToShow\(request\.work_location, parsed\.worksite\)/);
+  assert.match(admin, /worksiteToShow\(request\.work_location, parsed\.worksite\)/);
+  assert.match(detail, /location=\{worksite\}/);
+  assert.match(admin, /<WorkLocation location=\{worksite\} \/>/);
 });
 
 test("the client request page has no follow-up composer", () => {
