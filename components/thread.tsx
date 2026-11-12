@@ -1,4 +1,5 @@
 import { AttachmentFile } from "@/components/attachment-file";
+import { MessageBody } from "@/components/message-body";
 import type { MessageRow } from "@/lib/database.types";
 import type { ThreadAttachment } from "@/lib/data";
 import { formatDateTime } from "@/lib/format";
@@ -34,7 +35,7 @@ export function Thread({
                 <span className="mx-1">·</span>
                 <time dateTime={message.created_at}>{formatDateTime(message.created_at)}</time>
               </p>
-              {message.body ? <p className="mt-2 whitespace-pre-wrap text-base leading-7">{message.body}</p> : null}
+              {message.body ? <MessageBody text={message.body} mine={mine} /> : null}
               {files.length > 0 ? (
                 <ul className="mt-3 flex flex-col gap-2">
                   {files.map((file) => (
