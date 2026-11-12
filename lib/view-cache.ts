@@ -1,5 +1,6 @@
 import type { ChainLink } from "@/lib/document-chain";
 import { isStatusId, isTopicId, type StatusId, type TopicId } from "@/lib/domain";
+import { MAX_FILE_BYTES } from "@/lib/files";
 import { adminDeskHref } from "@/lib/paths";
 import { isLegalStage, isStageId, type StageId } from "@/lib/request-stage";
 import { isUuid } from "@/lib/tokens";
@@ -102,7 +103,8 @@ export type ViewStorage = {
   remove(key: string): void;
 };
 
-const STORAGE_KEY = "goodnote.view.v1";
+export const VIEW_STORAGE_KEY = "goodnote.view.v1";
+const STORAGE_KEY = VIEW_STORAGE_KEY;
 const MAX_DETAILS = 20;
 const MAX_MESSAGES = 80;
 const MAX_FILES = 40;
@@ -210,7 +212,7 @@ export function rememberClientDetail(storage: ViewStorage, scope: CacheScope, de
     savedAt: Date.now(),
     request,
     messages: detail.messages.filter(isMessage).slice(-MAX_MESSAGES),
-    files: detail.files.filter(isFile).slice(0, MAX_FILES),
+    files: cleanFiles(detail.files),
   };
   prune(envelope.clientDetails);
   writeEnvelope(storage, envelope);
@@ -247,7 +249,7 @@ export function rememberAdminDetail(storage: ViewStorage, scope: CacheScope, det
     phone: optionalText(detail.phone, 80),
     notes: optionalText(detail.notes, 4000),
     messages: detail.messages.filter(isMessage).slice(-MAX_MESSAGES),
-    files: detail.files.filter(isFile).slice(0, MAX_FILES),
+    files: cleanFiles(detail.files),
   };
   prune(envelope.adminDetails);
   writeEnvelope(storage, envelope);
@@ -299,13 +301,15 @@ export function rememberProvisionalClientRequest(
         created_at: now,
       },
     ],
-    files: input.files.map((file, index) => ({
-      id: `local-file-${input.requestId}-${index}`,
-      message_id: messageId,
-      file_name: file.name,
-      mime_type: file.type || "application/octet-stream",
-      size_bytes: file.size,
-    })),
+    files: cleanFiles(
+      input.files.map((file, index) => ({
+        id: `local-file-${input.requestId}-${index}`,
+        message_id: messageId,
+        file_name: file.name,
+        mime_type: file.type || "application/octet-stream",
+        size_bytes: file.size,
+      })),
+    ),
   });
 }
 
@@ -659,7 +663,7 @@ function validateEnvelope(value: unknown): Envelope | null {
         savedAt: typeof detail.savedAt === "number" ? detail.savedAt : 0,
         request: detail.request,
         messages: Array.isArray(detail.messages) ? detail.messages.filter(isMessage) : [],
-        files: Array.isArray(detail.files) ? detail.files.filter(isFile) : [],
+        files: cleanFiles(detail.files),
       };
     }
   }
@@ -674,7 +678,7 @@ function validateEnvelope(value: unknown): Envelope | null {
         phone: optionalText(detail.phone, 80),
         notes: optionalText(detail.notes, 4000),
         messages: Array.isArray(detail.messages) ? detail.messages.filter(isMessage) : [],
-        files: Array.isArray(detail.files) ? detail.files.filter(isFile) : [],
+        files: cleanFiles(detail.files),
       };
     }
   }
@@ -752,11 +756,36 @@ function isFile(value: unknown): value is CachedFile {
   const file = value as CachedFile;
   return (
     typeof file.id === "string" &&
+    file.id.length > 0 &&
     typeof file.message_id === "string" &&
     typeof file.file_name === "string" &&
     typeof file.mime_type === "string" &&
     typeof file.size_bytes === "number"
   );
+}
+
+function cachedFile(value: unknown): CachedFile | null {
+  if (!isFile(value)) return null;
+  if (!Number.isSafeInteger(value.size_bytes) || value.size_bytes <= 0 || value.size_bytes > MAX_FILE_BYTES) return null;
+  return {
+    id: value.id.slice(0, 80),
+    message_id: value.message_id.slice(0, 80),
+    file_name: value.file_name.slice(0, 180),
+    mime_type: value.mime_type.slice(0, 200),
+    size_bytes: value.size_bytes,
+  };
+}
+
+function cleanFiles(value: unknown): CachedFile[] {
+  if (!Array.isArray(value)) return [];
+  const files: CachedFile[] = [];
+  for (const item of value) {
+    const file = cachedFile(item);
+    if (!file) continue;
+    files.push(file);
+    if (files.length >= MAX_FILES) break;
+  }
+  return files;
 }
 
 function isClientOption(value: unknown): value is CachedClientOption {

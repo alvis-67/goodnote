@@ -1,17 +1,16 @@
+import { AttachmentFile } from "@/components/attachment-file";
 import type { MessageRow } from "@/lib/database.types";
 import type { ThreadAttachment } from "@/lib/data";
-import { formatBytes, formatDateTime } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 
-const previewable = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+type ThreadFile = Pick<ThreadAttachment, "id" | "message_id" | "file_name" | "mime_type" | "size_bytes">;
 
 export function Thread({
   messages,
   attachments,
-  urls,
 }: {
   messages: MessageRow[];
-  attachments: ThreadAttachment[];
-  urls: Map<string, string>;
+  attachments: ThreadFile[];
 }) {
   const visible = messages.filter((message) => message.kind === "message");
   if (visible.length === 0) {
@@ -38,28 +37,17 @@ export function Thread({
               {message.body ? <p className="mt-2 whitespace-pre-wrap text-base leading-7">{message.body}</p> : null}
               {files.length > 0 ? (
                 <ul className="mt-3 flex flex-col gap-2">
-                  {files.map((file) => {
-                    const href = urls.get(file.storage_path);
-                    return (
-                      <li key={file.id} className={`rounded-xl p-2 ${mine ? "bg-white/10" : "bg-paper"}`}>
-                        {previewable.has(file.mime_type) && href ? (
-                          // Signed URLs expire and are unique, so the image optimizer would not help.
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={href} alt={file.file_name} className="max-h-64 w-full rounded-lg object-contain" />
-                        ) : null}
-                        <div className="mt-1 flex items-center justify-between gap-3 text-sm">
-                          {href ? (
-                            <a href={href} target="_blank" rel="noopener noreferrer" className="truncate font-medium underline">
-                              {file.file_name}
-                            </a>
-                          ) : (
-                            <span className="truncate">{file.file_name}</span>
-                          )}
-                          <span className={mine ? "text-white/70" : "text-muted"}>{formatBytes(file.size_bytes)}</span>
-                        </div>
-                      </li>
-                    );
-                  })}
+                  {files.map((file) => (
+                    <li key={file.id} className={`rounded-xl p-2 ${mine ? "bg-white/10" : "bg-paper"}`}>
+                      <AttachmentFile
+                        id={file.id}
+                        fileName={file.file_name}
+                        mimeType={file.mime_type}
+                        sizeBytes={file.size_bytes}
+                        mine={mine}
+                      />
+                    </li>
+                  ))}
                 </ul>
               ) : null}
             </article>

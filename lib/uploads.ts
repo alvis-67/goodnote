@@ -15,7 +15,7 @@ import {
   type FileMeta,
 } from "@/lib/files";
 import { readSession } from "@/lib/auth/session";
-import { deleteObject, deleteStagingPrefix, inspectObject, signedDownloadUrl } from "@/lib/storage";
+import { deleteObject, deleteStagingPrefix, inspectObject } from "@/lib/storage";
 import { signUploadGrant } from "@/lib/upload-grant";
 import { stagingPrefixForRequest, uploadAllowed, type UploadTicket } from "@/lib/upload-plan";
 
@@ -198,22 +198,3 @@ export async function deleteRequestFiles(requestId: string, paths: string[], cli
   }
 }
 
-export async function signAttachmentPaths(
-  paths: string[],
-  scope?: { clientId: string },
-): Promise<Map<string, string>> {
-  const signed = new Map<string, string>();
-  const unique = [...new Set(paths)].filter((path) => {
-    const parts = parseStoragePath(path);
-    if (!parts) return false;
-    if (scope && parts.clientId !== scope.clientId) return false;
-    return true;
-  });
-  await Promise.all(
-    unique.map(async (path) => {
-      const url = await signedDownloadUrl(path);
-      if (url) signed.set(path, url);
-    }),
-  );
-  return signed;
-}

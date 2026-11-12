@@ -187,7 +187,6 @@ function CachedThread({
     file_name: file.file_name,
     mime_type: file.mime_type,
     size_bytes: file.size_bytes,
-    storage_path: file.id,
   }));
-  return <Thread messages={messages} attachments={attachments} urls={new Map()} />;
+  return <Thread messages={messages} attachments={attachments} />;
 }

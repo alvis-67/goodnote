@@ -8,14 +8,12 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
+import { selectDownloadBytes } from "@/lib/download-plan";
 import { storageEnv } from "@/lib/env";
-import { STORAGE_BUCKET } from "@/lib/files";
+import { MAX_FILE_BYTES, STORAGE_BUCKET } from "@/lib/files";
 import type { ObjectStore } from "@/lib/upload-object";
-import { isStagingPrefix } from "@/lib/upload-plan";
-
-const DOWNLOAD_SECONDS = 2 * 60 * 60;
+import { isStagingPrefix, UPLOAD_CHUNK_BYTES } from "@/lib/upload-plan";
 
 let client: S3Client | undefined;
 
@@ -70,6 +68,50 @@ export async function readObjectBytes(path: string): Promise<Uint8Array | null> 
     }
     return null;
   }
+}
+
+export async function readObjectRange(
+  path: string,
+  start: number,
+  end: number,
+  expectedSize: number,
+): Promise<Uint8Array | null> {
+  const length = end - start;
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    !Number.isSafeInteger(expectedSize) ||
+    start < 0 ||
+    length <= 0 ||
+    length > UPLOAD_CHUNK_BYTES ||
+    end > expectedSize ||
+    expectedSize > MAX_FILE_BYTES
+  ) {
+    return null;
+  }
+  try {
+    const result = await s3().send(
+      new GetObjectCommand({
+        Bucket: STORAGE_BUCKET,
+        Key: path,
+        Range: `bytes=${start}-${end - 1}`,
+      }),
+    );
+    if (result.Body) {
+      const body = await result.Body.transformToByteArray();
+      const selected = selectDownloadBytes(body, start, end, expectedSize, {
+        contentRange: result.ContentRange,
+        contentLength: result.ContentLength,
+      });
+      if (selected) return selected;
+    }
+  } catch (error) {
+    if (isMissingObject(error)) return null;
+    console.error("object range read failed", error instanceof Error ? error.name : "error");
+  }
+  const full = await readObjectBytes(path);
+  if (!full) return null;
+  return selectDownloadBytes(full, start, end, expectedSize, { contentLength: full.byteLength });
 }
 
 export async function inspectObject(path: string): Promise<{ contentType: string; size: number } | null> {
@@ -127,15 +169,4 @@ export async function deleteStagingPrefix(prefix: string): Promise<void> {
 
 export async function deleteObject(path: string): Promise<void> {
   await s3().send(new DeleteObjectCommand({ Bucket: STORAGE_BUCKET, Key: path }));
-}
-
-export async function signedDownloadUrl(path: string): Promise<string | null> {
-  try {
-    return await getSignedUrl(s3(), new GetObjectCommand({ Bucket: STORAGE_BUCKET, Key: path }), {
-      expiresIn: DOWNLOAD_SECONDS,
-    });
-  } catch (error) {
-    console.error("signed download failed", error instanceof Error ? error.name : "error");
-    return null;
-  }
 }
