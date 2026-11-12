@@ -14,9 +14,11 @@ import { LiveRequest, LiveRequestTitle, LiveStatusBadge } from "@/components/liv
 import { MarkAdminRead } from "@/components/mark-read";
 import { RememberAdminDetail } from "@/components/remember-view";
 import { StatusMenu } from "@/components/status-menu";
+import { RequestBreakdown } from "@/components/request-breakdown";
 import { Thread } from "@/components/thread";
 import { WorkLocation } from "@/components/work-location";
 import { getAdminRequest, listReplyPresets, loadAdminRequestChain, loadAdminThread } from "@/lib/data";
+import { parseRequestText, requestSourceText, worksiteToShow } from "@/lib/request-text";
 import { formatDateTime } from "@/lib/format";
 import { isDeskReady } from "@/lib/env";
 import { adminRequestPath } from "@/lib/paths";
@@ -49,6 +51,8 @@ export default async function AdminRequestPage({
   ]);
   if (!loaded) notFound();
   const { request, client } = loaded;
+  const parsed = parseRequestText(requestSourceText(thread.messages) ?? "");
+  const worksite = worksiteToShow(request.work_location, parsed.worksite);
   const advanceLabel = stageAdvanceLabel(request.topic, request.stage);
   const stagePrompt = adminStagePrompt(client.company_name, request.topic, request.stage);
   const cachedRequest = toCachedClientRequest({ ...request, parent: chain.parent, child: chain.child });
@@ -98,7 +102,7 @@ export default async function AdminRequestPage({
             <h2 className="text-2xl font-semibold">
               <LiveRequestTitle topic={request.topic} stage={request.stage} />
             </h2>
-            <WorkLocation location={request.work_location} />
+            <WorkLocation location={worksite} />
             <p className="mt-1 text-sm text-muted">建立於 {formatDateTime(request.created_at)}</p>
           </div>
           <LiveStatusBadge status={request.status} />
@@ -148,6 +152,7 @@ export default async function AdminRequestPage({
           </div>
         </div>
         </LiveRequest>
+        <RequestBreakdown parsed={parsed} currentTopic={request.topic} audience="admin" />
         <div className="mt-5">
           <Thread messages={thread.messages} attachments={thread.attachments} />
         </div>
