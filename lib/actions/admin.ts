@@ -10,7 +10,7 @@ import { hashPassword, passwordError, verifyPassword } from "@/lib/auth/password
 import { clientsListHref } from "@/lib/client-delete";
 import { optionalEmail, parseClientAccount } from "@/lib/clients";
 import { dbErrorCode, sql } from "@/lib/db";
-import { isDeleteConfirmed, isStatusId } from "@/lib/domain";
+import { isDeleteConfirmed, isStatusId, isTopicId } from "@/lib/domain";
 import { hasStorageEnv, isDeskReady } from "@/lib/env";
 import { storageKeysByRequest, type FileMeta } from "@/lib/files";
 import { clientHomePath, clientRequestPath } from "@/lib/paths";
@@ -24,6 +24,11 @@ import {
   type DeleteReplyPresetResult,
   type SaveReplyPresetResult,
 } from "@/lib/reply-presets";
+import {
+  parseTopicRuleDraft,
+  type DeleteTopicRuleResult,
+  type SaveTopicRuleResult,
+} from "@/lib/topic-rules";
 import type { MutationResult } from "@/lib/mutation";
 
 export async function createClientAccount(
@@ -262,6 +267,55 @@ export async function deleteReplyPreset(id: string): Promise<DeleteReplyPresetRe
     if (isRedirect(error)) throw error;
     console.error("reply preset delete failed", dbErrorCode(error));
     return { ok: false, error: "未能刪除預設回覆。" };
+  }
+}
+
+export async function saveTopicRule(phrase: string, topic: string): Promise<SaveTopicRuleResult> {
+  if (!isDeskReady()) return { ok: false, error: "系統尚未完成設定。" };
+  await requireAdmin();
+  const parsed = parseTopicRuleDraft(phrase, topic);
+  if (!parsed.ok) return parsed;
+
+  try {
+    const rows = await sql()`
+      insert into topic_rules (phrase, topic)
+      values (${parsed.phrase}, ${parsed.topic})
+      on conflict (phrase) do update set topic = excluded.topic
+      returning id, phrase, topic
+    `;
+    const id = rows[0]?.id ? String(rows[0].id) : "";
+    const savedPhrase = typeof rows[0]?.phrase === "string" ? rows[0].phrase : "";
+    const savedTopic = typeof rows[0]?.topic === "string" ? rows[0].topic : "";
+    if (!isUuid(id) || !savedPhrase || !isTopicId(savedTopic)) return { ok: false, error: "未能儲存事項規則。" };
+    revalidatePath("/admin/topic-rules");
+    revalidatePath("/client/new");
+    return { ok: true, rule: { id, phrase: savedPhrase, topic: savedTopic } };
+  } catch (error) {
+    if (isRedirect(error)) throw error;
+    console.error("topic rule save failed", dbErrorCode(error));
+    return { ok: false, error: "未能儲存事項規則。" };
+  }
+}
+
+export async function deleteTopicRule(id: string): Promise<DeleteTopicRuleResult> {
+  if (!isDeskReady()) return { ok: false, error: "系統尚未完成設定。" };
+  await requireAdmin();
+  if (!isUuid(id)) return { ok: false, error: "這個規則不能刪除。" };
+
+  try {
+    const rows = await sql()`
+      delete from topic_rules
+      where id = ${id}
+      returning id
+    `;
+    if (!rows[0]?.id) return { ok: false, error: "這個規則不能刪除。" };
+    revalidatePath("/admin/topic-rules");
+    revalidatePath("/client/new");
+    return { ok: true };
+  } catch (error) {
+    if (isRedirect(error)) throw error;
+    console.error("topic rule delete failed", dbErrorCode(error));
+    return { ok: false, error: "未能刪除事項規則。" };
   }
 }
 
