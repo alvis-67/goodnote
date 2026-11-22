@@ -4,8 +4,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "好事筆記",
-    template: "%s · 好事筆記",
+    default: "Goodnote",
+    template: "%s · Goodnote",
   },
   description: "客戶與管理員之間的報價、發票及收據請求。",
   robots: { index: false, follow: false },

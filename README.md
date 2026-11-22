@@ -1,4 +1,4 @@
-# 好事筆記 Goodnote
+# Goodnote
 
 A small web app for an admin who handles quotes, invoices, and receipts for engineering-company clients. The admin and each client sign in with a password. Each request has one shared timeline of messages and files. The current status and stage stay on the request page. Changes to them are still stored, and are not shown on the timeline.
 

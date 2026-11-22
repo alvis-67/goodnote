@@ -26,7 +26,7 @@ export function ClientHeader({
       <div className="mx-auto flex w-full max-w-lg flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <InstantLink href={clientHomePath} className="text-xs font-semibold tracking-wide text-stamp">
-            好事筆記
+            Goodnote
           </InstantLink>
           <p className="truncate text-base font-semibold">{companyName}</p>
           {contactName ? <p className="truncate text-sm text-muted">{contactName}</p> : null}

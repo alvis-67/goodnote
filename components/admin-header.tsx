@@ -15,7 +15,7 @@ export function AdminHeader({ email, unread }: { email: string; unread: number }
     <header className="border-b border-navy/10 bg-navy text-white">
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-4 py-3">
         <InstantLink href="/admin" className="mr-2 text-sm font-semibold tracking-wide">
-          好事筆記 · 管理
+          Goodnote · 管理
         </InstantLink>
         <nav className="flex items-center gap-2 text-sm">
           <InstantLink

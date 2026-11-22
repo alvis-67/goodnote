@@ -31,7 +31,7 @@ export default async function LoginPage({
 
   return (
     <main className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-5 py-16">
-      <p className="text-sm font-semibold tracking-wide text-stamp">好事筆記</p>
+      <p className="text-sm font-semibold tracking-wide text-stamp">Goodnote</p>
       <h1 className="mt-3 text-3xl font-semibold">管理員登入</h1>
       <p className="mt-2 mb-6 text-sm leading-6 text-muted">
         使用允許清單上的電郵和密碼。尚未設定密碼的帳戶不能登入，亦沒有公開註冊。登入後會保持登入，直至你按「登出」，或更改密碼。
