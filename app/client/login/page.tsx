@@ -19,7 +19,7 @@ export default async function ClientLoginPage() {
 
   return (
     <main className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-5 py-16">
-      <p className="text-sm font-semibold tracking-wide text-stamp">好事筆記</p>
+      <p className="text-sm font-semibold tracking-wide text-stamp">Goodnote</p>
       <h1 className="mt-3 text-3xl font-semibold">客戶登入</h1>
       <p className="mt-2 mb-6 text-sm leading-6 text-muted">
         使用管理員設定的登入名稱和密碼。登入名稱不必是電郵。登入後會保持登入，直至你按「登出」，或管理員重設密碼。
