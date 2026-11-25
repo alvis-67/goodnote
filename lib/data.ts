@@ -13,6 +13,7 @@ import { isStatusId, isTopicId } from "@/lib/domain";
 import { isLegalStage, isStageId } from "@/lib/request-stage";
 import { hasDatabaseEnv, isDeskReady } from "@/lib/env";
 import { asBool, asIso, asText } from "@/lib/rows";
+import { telegramBotToken } from "@/lib/telegram";
 import { BUILTIN_REPLY_PRESET, type ReplyPresetRecord } from "@/lib/reply-presets";
 import type { TopicRuleRecord } from "@/lib/topic-rules";
 import { isUuid } from "@/lib/tokens";
@@ -431,6 +432,24 @@ export async function listTopicRules(): Promise<TopicRuleRecord[]> {
   } catch (error) {
     console.error("topic rule list failed", dbErrorCode(error));
     return [];
+  }
+}
+
+export async function loadTelegramSettings(): Promise<{ configured: boolean; connected: boolean }> {
+  await requireAdmin();
+  const configured = Boolean(telegramBotToken());
+  if (!hasDatabaseEnv()) return { configured, connected: false };
+  try {
+    const rows = await sql()`
+      select (chat_id is not null) as connected
+      from admin_telegram
+      where id = 1
+      limit 1
+    `;
+    return { configured, connected: asBool(rows[0]?.connected) };
+  } catch (error) {
+    console.error("telegram settings read failed", dbErrorCode(error));
+    return { configured, connected: false };
   }
 }
 

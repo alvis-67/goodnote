@@ -1612,4 +1612,82 @@ select pg_temp.expect(
   'deleting a topic rule does not remove requests'
 );
 
+select pg_temp.expect(
+  (select count(*) = 1 from public.admin_telegram)
+  and (select chat_id is null and pairing_code_hash is null from public.admin_telegram where id = 1),
+  'telegram connection starts unset'
+);
+
+do $$
+begin
+  insert into public.admin_telegram (id) values (2);
+  raise exception 'FAIL: a second telegram row was stored';
+exception
+  when check_violation then
+    null;
+  when unique_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+do $$
+begin
+  update public.admin_telegram set chat_id = 'nope' where id = 1;
+  raise exception 'FAIL: a non-numeric telegram chat was stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
+insert into public.notification_events (
+  event_type, channel, recipient_role, client_id, request_id, payload, delivered_at
+) values (
+  'request_created',
+  'telegram',
+  'admin',
+  '22222222-2222-4222-8222-222222222222',
+  'abababab-abab-4bab-8bab-abababababab',
+  '{}'::jsonb,
+  now()
+);
+
+select pg_temp.expect(
+  (select channel = 'telegram' and delivered_at is not null
+   from public.notification_events
+   where channel = 'telegram'
+     and request_id = 'abababab-abab-4bab-8bab-abababababab'),
+  'telegram can be recorded as a delivered notification channel'
+);
+
+delete from public.notification_events where channel = 'telegram';
+
+do $$
+begin
+  insert into public.notification_events (
+    event_type, channel, recipient_role, client_id, request_id, payload
+  ) values (
+    'request_created',
+    'sms',
+    'admin',
+    '22222222-2222-4222-8222-222222222222',
+    'abababab-abab-4bab-8bab-abababababab',
+    '{}'::jsonb
+  );
+  raise exception 'FAIL: unknown notification channel stored';
+exception
+  when check_violation then
+    null;
+  when others then
+    if sqlerrm like 'FAIL:%' then
+      raise;
+    end if;
+end $$;
+
 rollback;

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 
 import { insertMessage, messageBody, normalizeFiles, type ActionFailure, type PrepareSuccess } from "@/lib/actions/shared";
 import { loadClientContext } from "@/lib/data";
@@ -9,6 +10,7 @@ import { isTopicId } from "@/lib/domain";
 import { hasDatabaseEnv, hasStorageEnv } from "@/lib/env";
 import type { FileMeta } from "@/lib/files";
 import { clientHomePath, clientRequestPath } from "@/lib/paths";
+import { notifyAdminOfNewRequest } from "@/lib/telegram-notify";
 import { isUuid } from "@/lib/tokens";
 import { finalizeUploads, prepareUploads } from "@/lib/uploads";
 import { parseWorkLocation } from "@/lib/work-location";
@@ -29,6 +31,7 @@ export async function prepareClientRequest(input: {
   const scope = await clientScope();
   if (!scope.ok) return scope;
   if (!isTopicId(input.topic)) return { ok: false, error: "請選擇事項。" };
+  const topic = input.topic;
   const workLocation = parseWorkLocation(typeof input.workLocation === "string" ? input.workLocation : "");
   if (!workLocation.ok) return workLocation;
   const body = messageBody(input.body);
@@ -44,7 +47,7 @@ export async function prepareClientRequest(input: {
   try {
     const rows = await sql()`
       insert into requests (client_id, topic, work_location)
-      values (${scope.context.client.id}, ${input.topic}, ${workLocation.value})
+      values (${scope.context.client.id}, ${topic}, ${workLocation.value})
       returning id
     `;
     const id = rows[0]?.id;
@@ -62,6 +65,18 @@ export async function prepareClientRequest(input: {
   });
   const redirectTo = clientRequestPath(requestId);
   if (!message.ok) return { ...message, redirectTo };
+
+  after(() =>
+    notifyAdminOfNewRequest({
+      requestId,
+      messageId: message.id,
+      clientId: scope.context.client.id,
+      companyName: scope.context.client.company_name,
+      topic,
+      workLocation: workLocation.value,
+      body: body.value,
+    }),
+  );
 
   const prepared = await prepareUploads({
     clientId: scope.context.client.id,

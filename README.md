@@ -16,7 +16,7 @@ The interface is Traditional Chinese (Hong Kong).
 - New requests are marked and sorted first on the admin desk.
 - The admin creates a client account and can later reset that client's password. Resetting a password ends that account's existing sessions.
 - Both desks show 登出. Signing out ends only that browser's session. A session stays valid until logout or a password change. It does not expire because of age or idle time.
-- Notifications in this version are in-app only. The `notification_events` table is the place to add email or WhatsApp later.
+- A new request sends the admin a short Telegram message when `TELEGRAM_BOT_TOKEN` is set and a chat is connected from 通知. The message names the client, the topic (出報價單 / 出發票 / 出收據 / 搵管理處 / 買保險 / 其他), the work location when there is one, a short content preview, and a link to that request on the official site. If Telegram is not set up, or the send fails, the request is still created. Email and WhatsApp are not sent.
 
 ## Stack
 
@@ -44,7 +44,7 @@ Use the project that is already created. Do not create another one.
 
 ## Local setup
 
-1. Copy `.env.example` to `.env.local`. Fill in the pooled `DATABASE_URL`, the direct `DATABASE_URL_UNPOOLED`, a session secret (`openssl rand -base64 32`), and the object-storage `AWS_*` values for the main branch. Do not commit `.env.local` or the secret.
+1. Copy `.env.example` to `.env.local`. Fill in the pooled `DATABASE_URL`, the direct `DATABASE_URL_UNPOOLED`, a session secret (`openssl rand -base64 32`), and the object-storage `AWS_*` values for the main branch. `TELEGRAM_BOT_TOKEN` is optional. Do not commit `.env.local` or any secret.
 2. Apply the schema with the **direct** connection. This does not touch `neon_auth` and does not insert a password:
 
 ```bash
@@ -58,9 +58,10 @@ psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0007_stage_tit
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0008_request_statuses.sql
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0009_topics_and_reply_presets.sql
 psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0010_topic_rules.sql
+psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f db/migrations/0011_admin_telegram.sql
 ```
 
-If `0001` through `0008_request_statuses` are already applied, run `0009_topics_and_reply_presets.sql` with the direct connection. If `0001` through `0009_topics_and_reply_presets` are already applied, run only `0010_topic_rules.sql`. After this change is merged, apply that file to the Goodnote Neon database only. Do not apply it to any other project, and do not apply it from the app. `0009_topics_and_reply_presets.sql` adds 搵管理處 and 買保險, and the shared admin reply presets. `0010_topic_rules.sql` stores the shared topic phrases and seeds the starting list. Neither file changes requests already stored.
+If `0001` through `0008_request_statuses` are already applied, run `0009_topics_and_reply_presets.sql` with the direct connection. If `0001` through `0009_topics_and_reply_presets` are already applied, run `0010_topic_rules.sql` and `0011_admin_telegram.sql`. If `0001` through `0010_topic_rules` are already applied, run only `0011_admin_telegram.sql`. After this change is merged, apply `0011_admin_telegram.sql` to the Goodnote Neon database only. Do not apply it to any other project, and do not apply it from the app. `0009_topics_and_reply_presets.sql` adds 搵管理處 and 買保險, and the shared admin reply presets. `0010_topic_rules.sql` stores the shared topic phrases and seeds the starting list. `0011_admin_telegram.sql` stores the admin Telegram chat and allows a `telegram` notification channel. These files do not change requests already stored.
 
 3. Allow an admin, if that email is not already listed. The address must be lowercase:
 
@@ -103,7 +104,8 @@ Old `/c/{token}` URLs send the visitor to `/client/login`. They do not show that
    - `AWS_SECRET_ACCESS_KEY`
    - `AWS_ENDPOINT_URL_S3`
    - `AWS_REGION`
-3. Apply `db/migrations/0002_accounts.sql`, `db/migrations/0003_request_status.sql`, `db/migrations/0004_work_location.sql`, `db/migrations/0005_document_chain.sql`, `db/migrations/0006_request_stage.sql`, `db/migrations/0007_stage_titles.sql`, `db/migrations/0008_request_statuses.sql`, `db/migrations/0009_topics_and_reply_presets.sql`, and `db/migrations/0010_topic_rules.sql` with the direct connection if they are not applied yet. Do not apply them from the app. `0006_request_stage.sql` keeps the quotation, invoice, and receipt on one request. `0007_stage_titles.sql` is the title update for that same request. `0008_request_statuses.sql` keeps the statuses 待處理, 已入機, and 已完成. `0009_topics_and_reply_presets.sql` adds 搵管理處 and 買保險, and stores shared admin reply presets. `0010_topic_rules.sql` stores the shared topic phrases. After this change is merged, apply `0010_topic_rules.sql` to the Goodnote Neon database only, not to any other project. Do not apply it from the app.
+   - `TELEGRAM_BOT_TOKEN` — optional. From BotFather. If it is unset, new requests still succeed and no Telegram message is sent. Do not commit it. The admin chat is connected from 通知, not from an environment variable.
+3. Apply `db/migrations/0002_accounts.sql`, `db/migrations/0003_request_status.sql`, `db/migrations/0004_work_location.sql`, `db/migrations/0005_document_chain.sql`, `db/migrations/0006_request_stage.sql`, `db/migrations/0007_stage_titles.sql`, `db/migrations/0008_request_statuses.sql`, `db/migrations/0009_topics_and_reply_presets.sql`, `db/migrations/0010_topic_rules.sql`, and `db/migrations/0011_admin_telegram.sql` with the direct connection if they are not applied yet. Do not apply them from the app. `0006_request_stage.sql` keeps the quotation, invoice, and receipt on one request. `0007_stage_titles.sql` is the title update for that same request. `0008_request_statuses.sql` keeps the statuses 待處理, 已入機, and 已完成. `0009_topics_and_reply_presets.sql` adds 搵管理處 and 買保險, and stores shared admin reply presets. `0010_topic_rules.sql` stores the shared topic phrases. `0011_admin_telegram.sql` stores the admin Telegram chat. After this change is merged, apply `0011_admin_telegram.sql` to the Goodnote Neon database only, not to any other project. Do not apply it from the app.
 4. Set the first admin password with `scripts/set-admin-password.ts` against the hosted database, using `DATABASE_URL_UNPOOLED` and `ADMIN_EMAIL=alvis@alvis.hk`. Until that hash exists, the admin login will say the password has not been set.
 5. Deploy. The browser posts each file to this app in chunks that stay under the platform request-body limit (commonly 4.5MB). The server writes the finished object to the private bucket. A file can still be 20MB, and one submission can still include 8 files. Previews and downloads are read back through this app in chunks of the same size, after the server checks the session. The browser does not fetch the storage host. Saving or opening a file does not require bucket CORS.
 
@@ -114,7 +116,7 @@ There is no emailed forgot-password flow. Password resets are done by someone wh
 - Clients are accounts. The server reads the session cookie, checks that the session is not revoked, and that `credential_at` still matches the client's `password_changed_at`. Every client query filters on that session's client id. Internal notes and password hashes are not selected for client pages.
 - Admins are rows in `admin_allowlist` with a password hash. The session stores the email. It does not trust a profile field as a permission. Public self-signup is closed.
 - Login names are unique. Email on a client is optional contact information and is not the client login.
-- The database role can read every row. Only server code holds `DATABASE_URL`. Status values, stage changes, the timeline, attachment scope, and in-app notification rows are still enforced by triggers. An admin can move a request between any of the three statuses at every stage. A stage only moves one step forward, on the same request. Deleting the request cascades to its messages, attachments, and notifications, and keeps a later document that only pointed at it. Deleting a client cascades to that client's sessions, requests, messages, attachments, and notifications. No extra migration is required for client deletion.
+- The database role can read every row. Only server code holds `DATABASE_URL`. Status values, stage changes, the timeline, attachment scope, and in-app notification rows are still enforced by triggers. An admin can move a request between any of the three statuses at every stage. A stage only moves one step forward, on the same request. Deleting the request cascades to its messages, attachments, and notifications, and keeps a later document that only pointed at it. Deleting a client cascades to that client's sessions, requests, messages, attachments, and notifications. No extra migration is required for client deletion. The Telegram bot token stays in `TELEGRAM_BOT_TOKEN` and is not stored in the database. The connected chat is stored in `admin_telegram` after an admin finishes 通知.
 - Object storage credentials stay on the server. The bucket is private. The browser does not upload to or download from the storage host. It posts upload chunks to `/api/uploads` with a short-lived grant for one object key, and it reads a saved file from `/api/files/{id}` with the session cookie. The server checks the session, that the client owns the request (an admin may open any of them), the size (20MB), and the MIME type. Each upload or download body stays under the platform limit. Deleting a request, or deleting the client who owns it, also deletes those objects, including unfinished chunks, from the bucket.
 - Session tokens are random. The database stores only an HMAC of the token, keyed with `SESSION_SECRET`. Password columns store scrypt hashes, never plaintext.
 
@@ -134,4 +136,4 @@ npm run build
 
 ## Later notifications
 
-`private.on_message_created()` currently inserts `channel = 'in_app'` with `delivered_at` set. A commented insert beside it shows where to add an `email` or `whatsapp` row with `delivered_at` left null. A worker can then deliver `where delivered_at is null` without changing the request flow.
+`private.on_message_created()` inserts `channel = 'in_app'` with `delivered_at` set. It does not call Telegram. After a client creates a request, the app sends one Telegram message when `TELEGRAM_BOT_TOKEN` is set and a chat is connected on 通知. A successful send adds a `notification_events` row with `channel = 'telegram'`. A missing token, a missing chat, or a Telegram error is logged without the bot token, and does not fail the request. A commented insert in the trigger still shows where an `email` or `whatsapp` row could be added later, with `delivered_at` left null.
