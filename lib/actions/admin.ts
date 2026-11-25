@@ -30,6 +30,8 @@ import {
   type SaveTopicRuleResult,
 } from "@/lib/topic-rules";
 import type { MutationResult } from "@/lib/mutation";
+import { clearTelegramChat, completeTelegramPairing, startTelegramPairing } from "@/lib/telegram-notify";
+import type { TelegramLinkResult, TelegramMutationResult } from "@/lib/telegram-text";
 
 export async function createClientAccount(
   _previous: ActionFailure | null,
@@ -567,6 +569,26 @@ export async function saveClientAccess(
       ? "密碼已重設。這位客戶現有的登入已結束，請把新密碼私下告知他們。"
       : "已設定登入。請把登入名稱和密碼私下告知客戶。",
   };
+}
+
+export async function beginTelegramConnect(): Promise<TelegramLinkResult> {
+  await requireAdmin();
+  revalidatePath("/admin/telegram");
+  return startTelegramPairing();
+}
+
+export async function completeTelegramConnect(): Promise<TelegramMutationResult> {
+  await requireAdmin();
+  const result = await completeTelegramPairing();
+  revalidatePath("/admin/telegram");
+  return result;
+}
+
+export async function disconnectTelegram(): Promise<TelegramMutationResult> {
+  await requireAdmin();
+  const result = await clearTelegramChat();
+  revalidatePath("/admin/telegram");
+  return result;
 }
 
 function isRedirect(error: unknown): boolean {

@@ -11,6 +11,7 @@ export function AdminHeader({ email, unread }: { email: string; unread: number }
   const desk = pathname === "/admin" || pathname.startsWith("/admin/requests");
   const clients = pathname.startsWith("/admin/clients");
   const rules = pathname.startsWith("/admin/topic-rules");
+  const notices = pathname.startsWith("/admin/telegram");
   return (
     <header className="border-b border-navy/10 bg-navy text-white">
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-4 py-3">
@@ -39,6 +40,13 @@ export function AdminHeader({ email, unread }: { email: string; unread: number }
             className={`rounded-lg px-3 py-2 ${rules ? "bg-white text-navy" : "text-white/85"}`}
           >
             事項規則
+          </InstantLink>
+          <InstantLink
+            href="/admin/telegram"
+            ariaCurrent={notices ? "page" : undefined}
+            className={`rounded-lg px-3 py-2 ${notices ? "bg-white text-navy" : "text-white/85"}`}
+          >
+            通知
           </InstantLink>
         </nav>
         <div className="ml-auto flex items-center gap-1">
