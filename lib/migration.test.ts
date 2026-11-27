@@ -15,6 +15,7 @@ const chainSql = readFileSync(new URL("../db/migrations/0005_document_chain.sql"
 const stageSql = readFileSync(new URL("../db/migrations/0006_request_stage.sql", import.meta.url), "utf8");
 const titleSql = readFileSync(new URL("../db/migrations/0007_stage_titles.sql", import.meta.url), "utf8");
 const statusSetSql = readFileSync(new URL("../db/migrations/0008_request_statuses.sql", import.meta.url), "utf8");
+const progressSql = readFileSync(new URL("../db/migrations/0012_request_in_progress.sql", import.meta.url), "utf8");
 const topicSql = readFileSync(new URL("../db/migrations/0009_topics_and_reply_presets.sql", import.meta.url), "utf8");
 const ruleSql = readFileSync(new URL("../db/migrations/0010_topic_rules.sql", import.meta.url), "utf8");
 const schemaScript = readFileSync(new URL("../scripts/test-schema.sh", import.meta.url), "utf8");
@@ -70,25 +71,48 @@ test("status can move between any of the three values", () => {
   assert.doesNotMatch(statusSetSql, /neon_auth\./);
   assert.doesNotMatch(statusSetSql, /postgres:\/\//i);
   assert.doesNotMatch(statusSetSql, /password/i);
-  for (const status of STATUSES) {
-    assert.match(statusSetSql, new RegExp(`'${status.id}'`));
-    assert.match(sql, new RegExp(`'${status.id}'`));
+  for (const status of ["pending", "recorded", "completed"]) {
+    assert.match(statusSetSql, new RegExp(`'${status}'`));
+    assert.match(sql, new RegExp(`'${status}'`));
   }
-  assert.deepEqual(
-    STATUSES.map((status) => status.label),
-    ["待處理", "已入機", "已完成"],
-  );
   assert.match(schemaScript, /db\/migrations\/\*\.sql/);
   assert.match(schemaScript, /status_migration_before\.sql/);
   assert.match(schemaScript, /status_migration_after\.sql/);
-  assert.match(readme, /待處理, 已入機, or 已完成/);
   assert.match(readme, /0008_request_statuses\.sql/);
-  assert.match(home, /待處理、已入機和已完成/);
-  assert.match(adminRequest, /待處理、已入機或已完成/);
-  for (const copy of [readme, home, adminRequest]) {
-    assert.doesNotMatch(copy, /處理中|已出單/);
-  }
-  assert.doesNotMatch(readme, /four statuses/);
+  assert.doesNotMatch(statusSetSql, /in_progress', 'recorded', 'completed'/);
+});
+
+test("處理中 is allowed again without rewriting rows that are already stored", () => {
+  assert.deepEqual(
+    STATUSES.map((status) => status.id),
+    ["pending", "in_progress", "recorded", "completed"],
+  );
+  assert.deepEqual(
+    STATUSES.map((status) => status.label),
+    ["待處理", "處理中", "已入機", "已完成"],
+  );
+  assert.match(progressSql, /DATABASE_URL_UNPOOLED/);
+  assert.match(progressSql, /0011_admin_telegram\.sql/);
+  assert.match(progressSql, /Goodnote Neon database only/);
+  assert.match(progressSql, /status in \('pending', 'in_progress', 'recorded', 'completed'\)/);
+  assert.match(progressSql, /status_from is null or status_from in \('pending', 'in_progress', 'recorded', 'completed'\)/);
+  assert.match(progressSql, /status_to is null or status_to in \('pending', 'in_progress', 'recorded', 'completed'\)/);
+  assert.match(progressSql, /new\.status not in \('pending', 'in_progress', 'recorded', 'completed'\)/);
+  assert.match(progressSql, /new\.status := 'pending'/);
+  assert.match(progressSql, /create or replace function private\.enforce_request_update/);
+  assert.doesNotMatch(progressSql, /update\s+(public\.)?requests/i);
+  assert.doesNotMatch(progressSql, /update\s+(public\.)?messages/i);
+  assert.doesNotMatch(progressSql, /insert\s+into/i);
+  assert.doesNotMatch(progressSql, /issued/);
+  assert.doesNotMatch(progressSql, /neon_auth\./);
+  assert.doesNotMatch(progressSql, /postgres:\/\//i);
+  assert.doesNotMatch(progressSql, /password/i);
+  assert.match(home, /待處理、處理中、已入機和已完成/);
+  assert.match(adminRequest, /待處理、處理中、已入機或已完成/);
+  assert.match(readme, /0012_request_in_progress\.sql/);
+  assert.match(readme, /待處理, 處理中, 已入機, or 已完成/);
+  assert.doesNotMatch(home, /已出單/);
+  assert.doesNotMatch(adminRequest, /已出單/);
 });
 
 test("work location is optional on old rows and limited to 120 characters", () => {

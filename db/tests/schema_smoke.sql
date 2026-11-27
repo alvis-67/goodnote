@@ -59,6 +59,40 @@ select pg_temp.expect(
 );
 
 do $$
+declare
+  notices_before int;
+  messages_before int;
+begin
+  select count(*) into notices_before
+  from public.notification_events
+  where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  select count(*) into messages_before
+  from public.messages
+  where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+  update public.messages
+  set body = '請出報價，棚架加名'
+  where id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    and author_role = 'client'
+    and kind = 'message';
+
+  if (select body from public.messages where id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb') <> '請出報價，棚架加名' then
+    raise exception 'FAIL: content edit did not store the new text';
+  end if;
+  if (select count(*) from public.notification_events where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') <> notices_before then
+    raise exception 'FAIL: content edit wrote a notification';
+  end if;
+  if (select count(*) from public.messages where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') <> messages_before then
+    raise exception 'FAIL: content edit wrote a timeline row';
+  end if;
+  if (select topic <> 'quote' or stage <> 'quote' or status <> 'pending' or work_location is not null
+      from public.requests
+      where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') then
+    raise exception 'FAIL: content edit changed topic, stage, status, or work location';
+  end if;
+end $$;
+
+do $$
 begin
   update public.requests
   set client_id = '22222222-2222-4222-8222-222222222222'
@@ -91,21 +125,6 @@ end $$;
 do $$
 begin
   update public.requests
-  set status = 'in_progress'
-  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-  raise exception 'FAIL: removed status in_progress stored';
-exception
-  when check_violation then
-    null;
-  when others then
-    if sqlerrm like 'FAIL:%' then
-      raise;
-    end if;
-end $$;
-
-do $$
-begin
-  update public.requests
   set status = 'issued'
   where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   raise exception 'FAIL: removed status issued stored';
@@ -125,19 +144,28 @@ select pg_temp.expect(
 
 select pg_temp.expect(
   (select pg_get_constraintdef(oid) like '%pending%'
+      and pg_get_constraintdef(oid) like '%in_progress%'
       and pg_get_constraintdef(oid) like '%recorded%'
       and pg_get_constraintdef(oid) like '%completed%'
-      and pg_get_constraintdef(oid) not like '%in_progress%'
       and pg_get_constraintdef(oid) not like '%issued%'
    from pg_constraint
    where conname = 'requests_status_check'
      and conrelid = 'public.requests'::regclass),
-  'request status is limited to pending, recorded, and completed'
+  'request status is limited to pending, in_progress, recorded, and completed'
+);
+
+select pg_temp.expect(
+  (select pg_get_constraintdef(oid) like '%in_progress%'
+      and pg_get_constraintdef(oid) not like '%issued%'
+   from pg_constraint
+   where conname = 'messages_status_to_check'
+     and conrelid = 'public.messages'::regclass),
+  'timeline status values include 處理中 and still reject issued'
 );
 
 do $$
 declare
-  statuses text[] := array['pending', 'recorded', 'completed'];
+  statuses text[] := array['pending', 'in_progress', 'recorded', 'completed'];
   origin text;
   dest text;
   changes_before int;
@@ -185,10 +213,10 @@ end $$;
 
 select pg_temp.expect(
   (select status = 'recorded' from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
-  'admin can set the status to any of the three values'
+  'admin can set the status to any of the four values'
 );
 select pg_temp.expect(
-  (select count(*) = 6
+  (select count(*) = 12
    from (
      select distinct status_from, status_to
      from public.messages
@@ -196,6 +224,15 @@ select pg_temp.expect(
        and kind = 'status_change'
    ) pairs),
   'every status can be reached from every other status'
+);
+select pg_temp.expect(
+  (select count(*) >= 1
+   from public.messages
+   where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+     and kind = 'status_change'
+     and status_from = 'pending'
+     and status_to = 'in_progress'),
+  '處理中 can be set from 待處理'
 );
 select pg_temp.expect(
   (select client_unread from public.requests where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
@@ -224,6 +261,62 @@ select pg_temp.expect(
    where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
   'inbox view shows the company and the latest message'
 );
+
+do $$
+declare
+  notices_before int;
+  messages_before int;
+begin
+  update public.requests
+  set status = 'in_progress'
+  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+  select count(*) into notices_before
+  from public.notification_events
+  where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  select count(*) into messages_before
+  from public.messages
+  where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+  update public.messages
+  set body = '處理中仍然可以改內容'
+  where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    and author_role = 'client'
+    and kind = 'message'
+    and id = (
+      select m.id
+      from public.messages m
+      where m.request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        and m.author_role = 'client'
+        and m.kind = 'message'
+      order by m.created_at asc, m.id asc
+      limit 1
+    );
+
+  if (select body from public.messages where id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb') <> '處理中仍然可以改內容' then
+    raise exception 'FAIL: content edit at 處理中 did not replace the original text';
+  end if;
+  if (select status <> 'in_progress' or topic <> 'quote' or stage <> 'quote' or work_location is not null
+      from public.requests
+      where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') then
+    raise exception 'FAIL: content edit at 處理中 changed status, topic, stage, or work location';
+  end if;
+  if (select count(*) from public.notification_events where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') <> notices_before then
+    raise exception 'FAIL: content edit at 處理中 wrote a notification';
+  end if;
+  if (select count(*) from public.messages where request_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') <> messages_before then
+    raise exception 'FAIL: content edit at 處理中 wrote a timeline row';
+  end if;
+  if (select latest_body <> '報價在附件'
+      from public.request_inbox
+      where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') then
+    raise exception 'FAIL: content edit replaced a later reply';
+  end if;
+end $$;
+
+update public.requests
+set status = 'recorded'
+where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 do $$
 declare
@@ -1025,6 +1118,10 @@ set status = 'recorded'
 where id = '10101010-1010-4010-8010-101010101010';
 
 update public.requests
+set status = 'in_progress'
+where id = '10101010-1010-4010-8010-101010101010';
+
+update public.requests
 set status = 'completed'
 where id = '10101010-1010-4010-8010-101010101010';
 
@@ -1036,7 +1133,7 @@ select pg_temp.expect(
   (select stage = 'receipt' and status = 'pending'
    from public.requests
    where id = '10101010-1010-4010-8010-101010101010'),
-  'the three statuses can still move in any direction at the receipt stage'
+  'the four statuses can still move in any direction at the receipt stage'
 );
 
 insert into public.requests (id, client_id, topic, work_location)

@@ -9,6 +9,7 @@ export const TOPICS = [
 
 export const STATUSES = [
   { id: "pending", label: "待處理" },
+  { id: "in_progress", label: "處理中" },
   { id: "recorded", label: "已入機" },
   { id: "completed", label: "已完成" },
 ] as const;

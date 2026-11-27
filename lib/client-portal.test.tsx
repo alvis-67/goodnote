@@ -148,6 +148,9 @@ test("the client request page has no follow-up composer", () => {
   assert.match(detail, /AdvanceStage/);
   assert.match(detail, /DocumentChain/);
   assert.match(detail, /ClientRequestHeading/);
+  assert.match(detail, /EditRequestContent/);
+  assert.match(detail, /originalClientContent\(thread\.messages\)/);
+  assert.match(detail, /action=\{updateClientRequestContent\}/);
   assert.doesNotMatch(detail, /補充或回覆/);
   assert.doesNotMatch(detail, /Composer/);
   assert.doesNotMatch(detail, /prepareClientReply/);

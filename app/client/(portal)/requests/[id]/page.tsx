@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { updateClientRequestContent } from "@/lib/actions/client";
 import { advanceClientRequestStage } from "@/lib/actions/stage";
 import { AdvanceStage } from "@/components/advance-stage";
+import { EditRequestContent } from "@/components/edit-request-content";
 import { ClientRequestHeading } from "@/components/client-request-heading";
 import { DocumentChain } from "@/components/document-chain";
 import { LiveRequest } from "@/components/live-request";
@@ -12,6 +14,7 @@ import { RequestBreakdown } from "@/components/request-breakdown";
 import { Thread } from "@/components/thread";
 import { getClientRequest, loadClientRequestChain, loadClientThread } from "@/lib/data";
 import { isDeskReady } from "@/lib/env";
+import { originalClientContent } from "@/lib/request-content";
 import { parseRequestText, requestSourceText, worksiteToShow } from "@/lib/request-text";
 import { clientRequestPath } from "@/lib/paths";
 import { stageAdvanceError, stageAdvanceLabel, stageAdvanceNote, stageAdvancedNotice } from "@/lib/request-stage";
@@ -83,6 +86,11 @@ export default async function ClientRequestPage({
       ) : null}
       </LiveRequest>
       <RequestBreakdown parsed={parsed} currentTopic={request.topic} audience="client" />
+      <EditRequestContent
+        requestId={request.id}
+        content={originalClientContent(thread.messages)}
+        action={updateClientRequestContent}
+      />
       <div className="mt-5">
         <Thread messages={thread.messages} attachments={thread.attachments} />
       </div>

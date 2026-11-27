@@ -36,7 +36,8 @@ test("the status menu offers every status and shows the current one", () => {
       options,
       STATUSES.map((status) => [status.id, status.label]),
     );
-    assert.doesNotMatch(html, /處理中|已出單|in_progress|issued/);
+    assert.match(html, /處理中/);
+    assert.doesNotMatch(html, /已出單|issued/);
     assert.match(html, new RegExp(`<option[^>]*selected[^>]*>${current.label}</option>|<option[^>]*>${current.label}</option>`));
     const selected = html.match(/<option[^>]*selected[^>]*>[^<]+<\/option>/);
     assert.ok(selected, `current status ${current.id} is selected`);
@@ -97,12 +98,14 @@ test("the desk wires admin delete and a free status menu, and clients cannot del
   assert.doesNotMatch(clientPage, /DeleteRequest|deleteRequest|刪除請求/);
 });
 
-test("status badges show the three labels", () => {
+test("status badges show the four labels", () => {
   const html = STATUSES.map((status) => markup(createElement(StatusBadge, { status: status.id }))).join("");
   assert.match(html, /待處理/);
+  assert.match(html, /處理中/);
   assert.match(html, /已入機/);
   assert.match(html, /已完成/);
-  assert.doesNotMatch(html, /處理中|已出單/);
+  assert.doesNotMatch(html, /已出單/);
+  assert.match(html, /bg-progress-bg/);
 });
 
 test("workbench delete links keep the current filters", () => {
