@@ -12,12 +12,14 @@ export function EditRequestContentForm({
   content,
   action,
   initiallyEditing = false,
+  tone = "portal",
   onSaved,
 }: {
   requestId: string;
   content: string;
   action: UpdateRequestContent;
   initiallyEditing?: boolean;
+  tone?: "portal" | "desk";
   onSaved?: () => void;
 }) {
   const errorRef = useRef<HTMLParagraphElement>(null);
@@ -83,8 +85,11 @@ export function EditRequestContentForm({
     onSaved?.();
   }
 
+  const cardClass =
+    tone === "desk" ? "mt-5 rounded-3xl bg-desk-card p-4" : "mt-5 rounded-3xl border border-line bg-card p-4";
+
   return (
-    <section aria-label="內容" className="mt-5 rounded-3xl border border-line bg-card p-4">
+    <section aria-label="內容" className={cardClass}>
       <h2 className="text-base font-semibold">內容</h2>
       {editing ? (
         <form onSubmit={onSubmit} aria-busy={pending || undefined} className="mt-3 flex flex-col gap-3">
@@ -157,6 +162,7 @@ export function EditRequestContent(props: {
   requestId: string;
   content: string;
   action: UpdateRequestContent;
+  tone?: "portal" | "desk";
 }) {
   const router = useRouter();
   return <EditRequestContentForm {...props} onSaved={() => router.refresh()} />;

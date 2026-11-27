@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AdvanceStage, StagePrompt } from "../components/advance-stage";
 import { ClientRequestList } from "../components/client-request-list";
 import { DocumentChain } from "../components/document-chain";
-import { Thread } from "../components/thread";
+import { messagesNewestFirst, Thread } from "../components/thread";
 import type { MessageRow, RequestRow } from "./database.types";
 import { clientRequestPath } from "./paths";
 import { adminStagePrompt, stageAdvanceLabel, stageAdvanceNote } from "./request-stage";
@@ -199,6 +199,90 @@ test("one job is one row, titled with the current stage", () => {
   assert.match(legacyItems[1] ?? "", /出發票/);
   assert.match(legacyItems[1] ?? "", /由出報價單開出/);
   assert.doesNotMatch(legacy, />開出發票<|>開出收據</);
+});
+
+test("request messages are newest first on both pages, and files stay on their own message", () => {
+  const older = "11111111-1111-4111-8111-111111111111";
+  const newer = "22222222-2222-4222-8222-222222222222";
+  const tied = "22222222-2222-4222-8222-222222222221";
+  const input = [
+    { id: older, created_at: "2026-11-01T00:00:00.000Z" },
+    { id: newer, created_at: "2026-11-02T00:00:00.000Z" },
+    { id: tied, created_at: "2026-11-02T00:00:00.000Z" },
+  ];
+  assert.deepEqual(
+    messagesNewestFirst(input).map((item) => item.id),
+    [newer, tied, older],
+  );
+  assert.equal(input[0]?.id, older);
+
+  const markup = html(
+    createElement(Thread, {
+      attachments: [
+        {
+          id: "file-old",
+          message_id: "message-old",
+          file_name: "舊圖.png",
+          mime_type: "image/png",
+          size_bytes: 10,
+        },
+        {
+          id: "file-new",
+          message_id: "message-new",
+          file_name: "新圖.png",
+          mime_type: "image/png",
+          size_bytes: 12,
+        },
+      ],
+      messages: [
+        message({
+          id: "message-old",
+          kind: "message",
+          author_role: "client",
+          body: "舊的請求內容",
+          created_at: "2026-11-01T01:00:00.000Z",
+        }),
+        message({
+          id: "status-new",
+          kind: "status_change",
+          author_role: "system",
+          body: "狀態由待處理改為處理中",
+          created_at: "2026-11-04T01:00:00.000Z",
+        }),
+        message({
+          id: "message-new",
+          kind: "message",
+          author_role: "admin",
+          body: "最新回覆",
+          created_at: "2026-11-02T01:00:00.000Z",
+        }),
+        message({
+          id: "stage-new",
+          kind: "stage_change",
+          body: "階段由出報價單改為出發票",
+          created_at: "2026-11-03T01:00:00.000Z",
+        }),
+      ],
+    }),
+  );
+  assert.ok(markup.indexOf("最新回覆") >= 0 && markup.indexOf("最新回覆") < markup.indexOf("舊的請求內容"));
+  const newerBlock = markup.slice(markup.indexOf("最新回覆"), markup.indexOf("舊的請求內容"));
+  assert.match(newerBlock, /新圖\.png/);
+  assert.doesNotMatch(newerBlock, /舊圖\.png/);
+  assert.match(markup.slice(markup.indexOf("舊的請求內容")), /舊圖\.png/);
+  assert.doesNotMatch(markup, /狀態由|階段由/);
+
+  const clientPage = readFileSync(new URL("../app/client/(portal)/requests/[id]/page.tsx", import.meta.url), "utf8");
+  const adminPage = readFileSync(new URL("../app/admin/(desk)/requests/[id]/page.tsx", import.meta.url), "utf8");
+  const data = readFileSync(new URL("./data.ts", import.meta.url), "utf8");
+  const threadQuery = data.slice(data.indexOf("async function loadThreadFor"), data.indexOf("export async function loadClientThread"));
+  assert.match(clientPage, /<Thread messages=\{thread\.messages\} attachments=\{thread\.attachments\} \/>/);
+  assert.match(adminPage, /<Thread messages=\{thread\.messages\} attachments=\{thread\.attachments\} \/>/);
+  assert.match(threadQuery, /order by created_at asc/);
+  assert.doesNotMatch(threadQuery, /order by created_at desc/);
+  assert.doesNotMatch(clientPage, /\.reverse\(|toReversed\(/);
+  assert.doesNotMatch(adminPage, /\.reverse\(|toReversed\(/);
+  assert.doesNotMatch(clientPage, /補充或回覆|Composer/);
 });
 
 test("the timeline keeps messages and files and hides status and stage changes", () => {
