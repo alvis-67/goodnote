@@ -3,12 +3,13 @@ import { notFound } from "next/navigation";
 
 import { InstantLink } from "@/components/instant-link";
 
-import { deleteRequest, setRequestStatus } from "@/lib/actions/admin";
+import { deleteRequest, setRequestStatus, updateAdminRequestContent } from "@/lib/actions/admin";
 import { advanceAdminRequestStage } from "@/lib/actions/stage";
 import { AdvanceStage, StagePrompt } from "@/components/advance-stage";
 import { ClientPhone } from "@/components/client-phone";
 import { Composer } from "@/components/composer";
 import { DeleteRequest } from "@/components/delete-request";
+import { EditRequestContent } from "@/components/edit-request-content";
 import { DocumentChain } from "@/components/document-chain";
 import { LiveRequest, LiveRequestTitle, LiveStatusBadge } from "@/components/live-request";
 import { MarkAdminRead } from "@/components/mark-read";
@@ -18,6 +19,7 @@ import { RequestBreakdown } from "@/components/request-breakdown";
 import { Thread } from "@/components/thread";
 import { WorkLocation } from "@/components/work-location";
 import { getAdminRequest, listReplyPresets, loadAdminRequestChain, loadAdminThread } from "@/lib/data";
+import { originalClientContent } from "@/lib/request-content";
 import { parseRequestText, requestSourceText, worksiteToShow } from "@/lib/request-text";
 import { formatDateTime } from "@/lib/format";
 import { isDeskReady } from "@/lib/env";
@@ -153,6 +155,12 @@ export default async function AdminRequestPage({
         </div>
         </LiveRequest>
         <RequestBreakdown parsed={parsed} currentTopic={request.topic} audience="admin" />
+        <EditRequestContent
+          requestId={request.id}
+          content={originalClientContent(thread.messages)}
+          action={updateAdminRequestContent}
+          tone="desk"
+        />
         <div className="mt-5">
           <Thread messages={thread.messages} attachments={thread.attachments} />
         </div>

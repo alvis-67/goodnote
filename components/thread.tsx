@@ -6,6 +6,15 @@ import { formatDateTime } from "@/lib/format";
 
 type ThreadFile = Pick<ThreadAttachment, "id" | "message_id" | "file_name" | "mime_type" | "size_bytes">;
 
+/** Newest message first. Equal times break on id, matching the oldest-first query in reverse. */
+export function messagesNewestFirst<T extends { id: string; created_at: string }>(messages: readonly T[]): T[] {
+  return messages.slice().sort((left, right) => {
+    if (left.created_at !== right.created_at) return left.created_at < right.created_at ? 1 : -1;
+    if (left.id !== right.id) return left.id < right.id ? 1 : -1;
+    return 0;
+  });
+}
+
 export function Thread({
   messages,
   attachments,
@@ -13,7 +22,7 @@ export function Thread({
   messages: MessageRow[];
   attachments: ThreadFile[];
 }) {
-  const visible = messages.filter((message) => message.kind === "message");
+  const visible = messagesNewestFirst(messages.filter((message) => message.kind === "message"));
   if (visible.length === 0) {
     return <p className="text-sm text-muted">這條紀錄還沒有訊息。</p>;
   }

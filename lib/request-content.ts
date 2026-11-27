@@ -26,8 +26,30 @@ export function canClientEditRequestContent(input: {
   return actor.length > 0 && actor === owner && typeof input.status === "string" && typeof input.stage === "string";
 }
 
+/**
+ * A signed-in admin may edit request content at every status and stage.
+ * A client session cannot. Status and stage are accepted so the caller records that they were not used as a gate.
+ */
+export function canAdminEditRequestContent(input: {
+  actorRole: string | null | undefined;
+  status: string;
+  stage: string;
+}): boolean {
+  return input.actorRole === "admin" && typeof input.status === "string" && typeof input.stage === "string";
+}
+
 /** Only the original message body is writable. Topic, worksite, files, status, and stage are not. */
 export const CLIENT_CONTENT_EDIT_FIELDS = ["body"] as const;
+
+/** The admin editor writes the same single field as the client editor. */
+export const ADMIN_CONTENT_EDIT_FIELDS = ["body"] as const;
+
+export function adminContentEditTouchesOnlyBody(fields: readonly string[]): boolean {
+  return (
+    fields.length === ADMIN_CONTENT_EDIT_FIELDS.length &&
+    fields.every((field, index) => field === ADMIN_CONTENT_EDIT_FIELDS[index])
+  );
+}
 
 export function clientContentEditTouchesOnlyBody(fields: readonly string[]): boolean {
   return (

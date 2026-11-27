@@ -7,7 +7,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { EditRequestContentForm } from "../components/edit-request-content";
 import { STATUSES } from "./domain";
 import {
+  ADMIN_CONTENT_EDIT_FIELDS,
   CLIENT_CONTENT_EDIT_FIELDS,
+  adminContentEditTouchesOnlyBody,
+  canAdminEditRequestContent,
   canClientEditRequestContent,
   clientContentEditTouchesOnlyBody,
   originalClientContent,
@@ -114,7 +117,86 @@ test("the client content action checks ownership, ignores status, and does not n
   assert.match(action, /after\(\(\) =>\s*notifyAdminOfNewRequest/);
 
   const adminPage = readFileSync(new URL("../app/admin/(desk)/requests/[id]/page.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(adminPage, /EditRequestContent|updateClientRequestContent/);
+  assert.doesNotMatch(adminPage, /updateClientRequestContent/);
+});
+
+test("a signed-in admin can edit content at every status, and a client cannot", () => {
+  const stages = ["quote", "invoice", "receipt", "management", "insurance", "other"];
+  for (const status of STATUSES) {
+    for (const stage of stages) {
+      assert.equal(
+        canAdminEditRequestContent({ actorRole: "admin", status: status.id, stage }),
+        true,
+        `${status.id} / ${stage}`,
+      );
+    }
+  }
+  assert.equal(canAdminEditRequestContent({ actorRole: "admin", status: "", stage: "" }), true);
+  assert.equal(canAdminEditRequestContent({ actorRole: "admin", status: "issued", stage: "quote" }), true);
+  assert.equal(canAdminEditRequestContent({ actorRole: "client", status: "pending", stage: "quote" }), false);
+  assert.equal(canAdminEditRequestContent({ actorRole: null, status: "completed", stage: "receipt" }), false);
+  assert.equal(canAdminEditRequestContent({ actorRole: undefined, status: "recorded", stage: "invoice" }), false);
+  assert.equal(canAdminEditRequestContent({ actorRole: "admin ", status: "pending", stage: "quote" }), false);
+  assert.equal(canAdminEditRequestContent({ actorRole: "", status: "in_progress", stage: "quote" }), false);
+
+  assert.deepEqual(ADMIN_CONTENT_EDIT_FIELDS, ["body"]);
+  assert.equal(adminContentEditTouchesOnlyBody(["body"]), true);
+  assert.equal(adminContentEditTouchesOnlyBody(["body", "topic"]), false);
+  assert.equal(adminContentEditTouchesOnlyBody(["work_location"]), false);
+  assert.equal(adminContentEditTouchesOnlyBody(["status"]), false);
+  assert.equal(adminContentEditTouchesOnlyBody(["stage"]), false);
+  assert.equal(adminContentEditTouchesOnlyBody([]), false);
+});
+
+test("the admin content action requires an admin session, edits only the body, and does not notify", () => {
+  const action = readFileSync(new URL("./actions/admin.ts", import.meta.url), "utf8");
+  const start = action.indexOf("export async function updateAdminRequestContent");
+  const fn = action.slice(start, action.indexOf("export async function deleteRequest"));
+  assert.ok(start > -1);
+  assert.match(fn, /readSession\(\)/);
+  assert.match(fn, /session\.kind !== "admin"/);
+  assert.ok(fn.indexOf('session.kind !== "admin"') < fn.indexOf("update messages"));
+  assert.match(fn, /canAdminEditRequestContent\(/);
+  assert.ok(fn.indexOf("canAdminEditRequestContent(") < fn.indexOf("update messages"));
+  assert.match(fn, /set body = /);
+  assert.match(fn, /author_role = 'client'/);
+  assert.match(fn, /kind = 'message'/);
+  assert.match(fn, /order by m\.created_at asc, m\.id asc/);
+  assert.match(fn, /revalidatePath\(adminRequestPath\(input\.requestId\)\)/);
+  assert.match(fn, /revalidatePath\(clientRequestPath\(input\.requestId\)\)/);
+  assert.doesNotMatch(fn, /notifyAdminOfNewRequest|startTelegramPairing|completeTelegramPairing|clearTelegramChat/);
+  assert.doesNotMatch(fn, /notification_events/);
+  assert.doesNotMatch(fn, /insert into messages/i);
+  assert.doesNotMatch(fn, /set (topic|stage|status|work_location)/i);
+  assert.doesNotMatch(fn, /where[^;]*status =/i);
+  assert.doesNotMatch(fn, /clientScope|actorClientId|client_id =/);
+
+  const adminPage = readFileSync(new URL("../app/admin/(desk)/requests/[id]/page.tsx", import.meta.url), "utf8");
+  const clientPage = readFileSync(new URL("../app/client/(portal)/requests/[id]/page.tsx", import.meta.url), "utf8");
+  assert.match(adminPage, /<EditRequestContent/);
+  assert.match(adminPage, /action=\{updateAdminRequestContent\}/);
+  assert.match(adminPage, /content=\{originalClientContent\(thread\.messages\)\}/);
+  assert.match(adminPage, /tone="desk"/);
+  assert.doesNotMatch(adminPage, /updateClientRequestContent|補充或回覆|Composer audience="client"/);
+  assert.match(clientPage, /action=\{updateClientRequestContent\}/);
+  assert.doesNotMatch(clientPage, /updateAdminRequestContent/);
+
+  const desk = renderToStaticMarkup(
+    createElement(EditRequestContentForm, {
+      requestId,
+      content: "請出報價，棚架加名",
+      tone: "desk",
+      action: async () => ({ ok: false as const, error: "未能儲存內容。" }),
+      initiallyEditing: true,
+    }),
+  );
+  assert.match(desk, /bg-desk-card/);
+  assert.match(desk, /<textarea[^>]*name="body"/);
+  assert.match(desk, />儲存</);
+  assert.match(desk, />取消</);
+  assert.match(desk, /min-h-12 w-full/);
+  assert.match(desk, /只會儲存這段內容/);
+  assert.doesNotMatch(desk, /type="file"|name="topic"|name="workLocation"|name="status"|<select|補充或回覆/);
 });
 
 test("the content editor offers save and cancel, and keeps other fields out", () => {

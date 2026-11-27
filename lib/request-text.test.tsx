@@ -315,7 +315,8 @@ test("the summary shows the structured fields and omits the empty ones", () => {
   assert.doesNotMatch(fax, /聯絡電話/);
 
   const unclear = renderBreakdown(UNCLEAR, "invoice", "client");
-  assert.match(unclear, /事項未明確，請人手選擇。僅供參考：出報價單。/);
+  assert.doesNotMatch(unclear, /事項未明確，請人手選擇。僅供參考：出報價單。/);
+  assert.doesNotMatch(unclear, /事項未明確|請人手選擇|僅供參考/);
   assert.match(unclear, /Sunny City Limited/);
   assert.match(unclear, /雲咸街71號雲山大廈2402/);
   assert.match(unclear, /曾生/);
@@ -344,7 +345,14 @@ test("a clear topic that differs is only a suggestion, and an unclear topic stay
   const unclear = topicNote(parseRequestText(UNCLEAR), "invoice", "admin");
   assert.match(unclear ?? "", /事項未明確/);
   assert.match(unclear ?? "", /僅供參考：出報價單/);
+  assert.equal(unclear, "事項未明確，請人手選擇。僅供參考：出報價單。");
   assert.doesNotMatch(unclear ?? "", /建議事項：出發票|建議事項：出收據/);
+  assert.equal(topicNote(parseRequestText(UNCLEAR), "invoice", "client"), null);
+  assert.equal(topicNote(parseRequestText(UNCLEAR), "quote", "client"), null);
+  const unclearAdmin = renderBreakdown(UNCLEAR, "invoice", "admin");
+  assert.match(unclearAdmin, /事項未明確，請人手選擇。僅供參考：出報價單。/);
+  assert.equal(parseRequestText(UNCLEAR).suggestion, "quote");
+  assert.equal(parseRequestText(UNCLEAR).topicConfidence, "low");
 
   const html = renderBreakdown(INVOICE, "quote");
   assert.match(html, /建議事項：出發票/);

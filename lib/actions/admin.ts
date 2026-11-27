@@ -4,16 +4,16 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireAdmin } from "@/lib/auth";
-import { destroyCurrentSession } from "@/lib/auth/session";
+import { destroyCurrentSession, readSession } from "@/lib/auth/session";
 import { normalizeLoginName } from "@/lib/auth/login-name";
 import { hashPassword, passwordError, verifyPassword } from "@/lib/auth/password";
 import { clientsListHref } from "@/lib/client-delete";
 import { optionalEmail, parseClientAccount } from "@/lib/clients";
 import { dbErrorCode, sql } from "@/lib/db";
 import { isDeleteConfirmed, isStatusId, isTopicId } from "@/lib/domain";
-import { hasStorageEnv, isDeskReady } from "@/lib/env";
+import { hasDatabaseEnv, hasStorageEnv, isDeskReady } from "@/lib/env";
 import { storageKeysByRequest, type FileMeta } from "@/lib/files";
-import { clientHomePath, clientRequestPath } from "@/lib/paths";
+import { adminRequestPath, clientHomePath, clientRequestPath } from "@/lib/paths";
 import { asText } from "@/lib/rows";
 import { isUuid } from "@/lib/tokens";
 import { deleteRequestFiles, finalizeUploads, prepareUploads } from "@/lib/uploads";
@@ -30,6 +30,7 @@ import {
   type SaveTopicRuleResult,
 } from "@/lib/topic-rules";
 import type { MutationResult } from "@/lib/mutation";
+import { canAdminEditRequestContent, parseRequestContent } from "@/lib/request-content";
 import { clearTelegramChat, completeTelegramPairing, startTelegramPairing } from "@/lib/telegram-notify";
 import type { TelegramLinkResult, TelegramMutationResult } from "@/lib/telegram-text";
 
@@ -121,6 +122,74 @@ export async function setRequestStatus(formData: FormData): Promise<MutationResu
   revalidatePath("/admin");
   revalidatePath(clientHomePath);
   revalidatePath(clientRequestPath(requestId));
+  return { ok: true };
+}
+
+export async function updateAdminRequestContent(input: {
+  requestId: string;
+  body: string;
+}): Promise<{ ok: true } | ActionFailure> {
+  if (!hasDatabaseEnv()) return { ok: false, error: "系統尚未完成設定。" };
+  if (!isUuid(input.requestId)) return { ok: false, error: "找不到這個請求。" };
+  const body = parseRequestContent(input.body);
+  if (!body.ok) return body;
+
+  const session = await readSession();
+  if (!session || session.kind !== "admin") return { ok: false, error: "請先登入。" };
+
+  let stored: { status: string; stage: string } | undefined;
+  try {
+    const rows = await sql()`
+      select status, stage
+      from requests
+      where id = ${input.requestId}
+      limit 1
+    `;
+    const row = rows[0];
+    if (row) stored = { status: String(row.status ?? ""), stage: String(row.stage ?? "") };
+  } catch (error) {
+    console.error("request content read failed", dbErrorCode(error));
+    return { ok: false, error: "未能儲存內容。" };
+  }
+  if (
+    !stored ||
+    !canAdminEditRequestContent({
+      actorRole: session.kind,
+      status: stored.status,
+      stage: stored.stage,
+    })
+  ) {
+    return { ok: false, error: "找不到這個請求。" };
+  }
+
+  try {
+    const updated = await sql()`
+      update messages
+      set body = ${body.value.length > 0 ? body.value : null}
+      where request_id = ${input.requestId}
+        and author_role = 'client'
+        and kind = 'message'
+        and id = (
+          select m.id
+          from messages m
+          where m.request_id = ${input.requestId}
+            and m.author_role = 'client'
+            and m.kind = 'message'
+          order by m.created_at asc, m.id asc
+          limit 1
+        )
+      returning id
+    `;
+    if (!updated[0]) return { ok: false, error: "找不到可以修改的內容。" };
+  } catch (error) {
+    console.error("request content update failed", dbErrorCode(error));
+    return { ok: false, error: "未能儲存內容。" };
+  }
+
+  revalidatePath(adminRequestPath(input.requestId));
+  revalidatePath("/admin");
+  revalidatePath(clientHomePath);
+  revalidatePath(clientRequestPath(input.requestId));
   return { ok: true };
 }
 

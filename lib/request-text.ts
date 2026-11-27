@@ -237,7 +237,7 @@ export function topicNote(
   audience: "admin" | "client",
 ): string | null {
   if (parsed.topicConfidence === "low") {
-    if (!parsed.suggestion) return null;
+    if (audience === "client" || !parsed.suggestion) return null;
     return `事項未明確，請人手選擇。僅供參考：${topicLabel(parsed.suggestion)}。`;
   }
   if (audience === "admin" && parsed.topic && parsed.topic !== currentTopic) {
