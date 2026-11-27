@@ -9,7 +9,8 @@ import { dbErrorCode, sql } from "@/lib/db";
 import { isTopicId } from "@/lib/domain";
 import { hasDatabaseEnv, hasStorageEnv } from "@/lib/env";
 import type { FileMeta } from "@/lib/files";
-import { clientHomePath, clientRequestPath } from "@/lib/paths";
+import { adminRequestPath, clientHomePath, clientRequestPath } from "@/lib/paths";
+import { canClientEditRequestContent, parseRequestContent } from "@/lib/request-content";
 import { notifyAdminOfNewRequest } from "@/lib/telegram-notify";
 import { isUuid } from "@/lib/tokens";
 import { finalizeUploads, prepareUploads } from "@/lib/uploads";
@@ -122,6 +123,81 @@ export async function finalizeClientUploads(input: {
   if (!saved.ok) return { ...saved, redirectTo };
   revalidatePath(redirectTo);
   return { ok: true, redirectTo };
+}
+
+export async function updateClientRequestContent(input: {
+  requestId: string;
+  body: string;
+}): Promise<{ ok: true } | ActionFailure> {
+  const scope = await clientScope();
+  if (!scope.ok) return scope;
+  if (!isUuid(input.requestId)) return { ok: false, error: "找不到這個請求。" };
+  const body = parseRequestContent(input.body);
+  if (!body.ok) return body;
+
+  let owner: { client_id: string; status: string; stage: string } | undefined;
+  try {
+    const rows = await sql()`
+      select client_id, status, stage
+      from requests
+      where id = ${input.requestId}
+        and client_id = ${scope.context.client.id}
+      limit 1
+    `;
+    const row = rows[0];
+    if (row) {
+      owner = {
+        client_id: String(row.client_id ?? ""),
+        status: String(row.status ?? ""),
+        stage: String(row.stage ?? ""),
+      };
+    }
+  } catch (error) {
+    console.error("request content read failed", dbErrorCode(error));
+    return { ok: false, error: "未能儲存內容。" };
+  }
+  if (
+    !owner ||
+    !canClientEditRequestContent({
+      actorClientId: scope.context.client.id,
+      ownerClientId: owner.client_id,
+      status: owner.status,
+      stage: owner.stage,
+    })
+  ) {
+    return { ok: false, error: "找不到這個請求。" };
+  }
+
+  try {
+    const updated = await sql()`
+      update messages
+      set body = ${body.value.length > 0 ? body.value : null}
+      where request_id = ${input.requestId}
+        and author_role = 'client'
+        and kind = 'message'
+        and id = (
+          select m.id
+          from messages m
+          where m.request_id = ${input.requestId}
+            and m.author_role = 'client'
+            and m.kind = 'message'
+          order by m.created_at asc, m.id asc
+          limit 1
+        )
+      returning id
+    `;
+    if (!updated[0]) return { ok: false, error: "找不到可以修改的內容。" };
+  } catch (error) {
+    console.error("request content update failed", dbErrorCode(error));
+    return { ok: false, error: "未能儲存內容。" };
+  }
+
+  const redirectTo = clientRequestPath(input.requestId);
+  revalidatePath(redirectTo);
+  revalidatePath(clientHomePath);
+  revalidatePath(adminRequestPath(input.requestId));
+  revalidatePath("/admin");
+  return { ok: true };
 }
 
 export async function markClientRequestRead(requestId: string): Promise<void> {

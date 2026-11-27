@@ -8,7 +8,7 @@ test("an admin can assign any status from any current status", () => {
   const ids = STATUSES.map((status) => status.id);
   assert.deepEqual(
     ids,
-    ["pending", "recorded", "completed"],
+    ["pending", "in_progress", "recorded", "completed"],
   );
   assert.equal(statusAssignments().length, ids.length * (ids.length - 1));
   for (const from of ids) {
