@@ -11,13 +11,20 @@ import {
   parseStoragePath,
   resolveFile,
   buildStoragePath,
+  storageKeysForMessage,
   storageKeysForRequest,
   type FileMeta,
 } from "@/lib/files";
 import { readSession } from "@/lib/auth/session";
 import { deleteObject, deleteStagingPrefix, inspectObject } from "@/lib/storage";
 import { signUploadGrant } from "@/lib/upload-grant";
-import { stagingPrefixForRequest, uploadAllowed, type UploadTicket } from "@/lib/upload-plan";
+import {
+  MAX_UPLOAD_CHUNKS,
+  stagingObjectKey,
+  stagingPrefixForRequest,
+  uploadAllowed,
+  type UploadTicket,
+} from "@/lib/upload-plan";
 
 export async function prepareUploads(input: {
   clientId: string;
@@ -173,6 +180,27 @@ export async function finalizeUploads(input: {
   }
 
   return { ok: true };
+}
+
+export async function deleteMessageFiles(requestId: string, messageId: string, paths: string[]): Promise<void> {
+  if (!hasStorageEnv()) return;
+  const keys = storageKeysForMessage(requestId, messageId, paths);
+  await Promise.all(
+    keys.map(async (path) => {
+      const staged = Array.from({ length: MAX_UPLOAD_CHUNKS }, (_, index) => stagingObjectKey(path, index)).flatMap(
+        (key) => (key ? [key] : []),
+      );
+      await Promise.all(
+        [path, ...staged].map(async (key) => {
+          try {
+            await deleteObject(key);
+          } catch (error) {
+            console.error("attachment object delete failed", error instanceof Error ? error.name : "error");
+          }
+        }),
+      );
+    }),
+  );
 }
 
 export async function deleteRequestFiles(requestId: string, paths: string[], clientId?: string): Promise<void> {

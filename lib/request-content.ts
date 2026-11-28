@@ -12,6 +12,21 @@ export function originalClientContent(
 }
 
 /**
+ * Body of the original client message, or null when that message is gone.
+ * A blank original still returns "" so the editor stays available.
+ * A later client reply is not a substitute.
+ */
+export function originalContentToEdit(
+  messages: readonly { id: string; kind: string; author_role: string; body: string | null }[],
+  originalMessageId: string | null,
+): string | null {
+  if (!originalMessageId) return null;
+  const message = messages.find((item) => item.id === originalMessageId);
+  if (!message || message.kind !== "message" || message.author_role !== "client") return null;
+  return message.body ?? "";
+}
+
+/**
  * A signed-in client may edit their own request at every status and stage.
  * Status and stage are accepted so the caller records that they were not used as a gate.
  */

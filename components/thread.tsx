@@ -1,4 +1,5 @@
 import { AttachmentFile } from "@/components/attachment-file";
+import { DeleteConversationMessage, type DeleteConversationMessageAction } from "@/components/delete-message";
 import { MessageBody } from "@/components/message-body";
 import type { MessageRow } from "@/lib/database.types";
 import type { ThreadAttachment } from "@/lib/data";
@@ -18,9 +19,13 @@ export function messagesNewestFirst<T extends { id: string; created_at: string }
 export function Thread({
   messages,
   attachments,
+  requestId,
+  deleteMessage,
 }: {
   messages: MessageRow[];
   attachments: ThreadFile[];
+  requestId?: string;
+  deleteMessage?: DeleteConversationMessageAction;
 }) {
   const visible = messagesNewestFirst(messages.filter((message) => message.kind === "message"));
   if (visible.length === 0) {
@@ -59,6 +64,14 @@ export function Thread({
                     </li>
                   ))}
                 </ul>
+              ) : null}
+              {deleteMessage && requestId ? (
+                <DeleteConversationMessage
+                  requestId={requestId}
+                  messageId={message.id}
+                  action={deleteMessage}
+                  mine={mine}
+                />
               ) : null}
             </article>
           </li>

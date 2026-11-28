@@ -11,12 +11,13 @@ import { clientsListHref } from "@/lib/client-delete";
 import { optionalEmail, parseClientAccount } from "@/lib/clients";
 import { dbErrorCode, sql } from "@/lib/db";
 import { isDeleteConfirmed, isStatusId, isTopicId } from "@/lib/domain";
+import { canDeleteConversationMessage } from "@/lib/message-delete";
 import { hasDatabaseEnv, hasStorageEnv, isDeskReady } from "@/lib/env";
 import { storageKeysByRequest, type FileMeta } from "@/lib/files";
 import { adminRequestPath, clientHomePath, clientRequestPath } from "@/lib/paths";
 import { asText } from "@/lib/rows";
 import { isUuid } from "@/lib/tokens";
-import { deleteRequestFiles, finalizeUploads, prepareUploads } from "@/lib/uploads";
+import { deleteMessageFiles, deleteRequestFiles, finalizeUploads, prepareUploads } from "@/lib/uploads";
 import { insertMessage, messageBody, normalizeFiles, type ActionFailure, type PrepareSuccess } from "@/lib/actions/shared";
 import {
   BUILTIN_REPLY_PRESET,
@@ -172,9 +173,13 @@ export async function updateAdminRequestContent(input: {
         and id = (
           select m.id
           from messages m
+          join notification_events e
+            on e.message_id = m.id
+           and e.request_id = m.request_id
           where m.request_id = ${input.requestId}
             and m.author_role = 'client'
             and m.kind = 'message'
+            and e.event_type = 'request_created'
           order by m.created_at asc, m.id asc
           limit 1
         )
@@ -190,6 +195,65 @@ export async function updateAdminRequestContent(input: {
   revalidatePath("/admin");
   revalidatePath(clientHomePath);
   revalidatePath(clientRequestPath(input.requestId));
+  return { ok: true };
+}
+
+export async function deleteConversationMessage(input: {
+  requestId: string;
+  messageId: string;
+  confirm: string;
+}): Promise<MutationResult> {
+  if (!hasDatabaseEnv()) return { ok: false, error: "系統尚未完成設定。" };
+  if (!isUuid(input.requestId) || !isUuid(input.messageId)) return { ok: false, error: "找不到這則訊息。" };
+  const session = await readSession();
+  if (!session || session.kind !== "admin") return { ok: false, error: "請先登入。" };
+  if (!isDeleteConfirmed(input.confirm)) return { ok: false, error: "請先確認才可以刪除。" };
+
+  try {
+    const [found, files] = await Promise.all([
+      sql()`
+        select id, kind
+        from messages
+        where id = ${input.messageId}
+          and request_id = ${input.requestId}
+        limit 1
+      `,
+      sql()`
+        select storage_path
+        from attachments
+        where message_id = ${input.messageId}
+          and request_id = ${input.requestId}
+      `,
+    ]);
+    const row = found[0];
+    if (!row) return { ok: false, error: "找不到這則訊息。" };
+    const kind = String(row.kind ?? "");
+    if (!canDeleteConversationMessage({ actorRole: session.kind, kind })) {
+      return { ok: false, error: "這則紀錄不能刪除。" };
+    }
+    const removed = await sql()`
+      delete from messages
+      where id = ${input.messageId}
+        and request_id = ${input.requestId}
+        and kind = 'message'
+      returning id
+    `;
+    if (!removed[0]) return { ok: false, error: "找不到這則訊息。" };
+    await deleteMessageFiles(
+      input.requestId,
+      input.messageId,
+      files.map((file) => String(file.storage_path ?? "")),
+    );
+  } catch (error) {
+    if (isRedirect(error)) throw error;
+    console.error("message delete failed", dbErrorCode(error));
+    return { ok: false, error: "未能刪除這則訊息。" };
+  }
+
+  revalidatePath(adminRequestPath(input.requestId));
+  revalidatePath(clientRequestPath(input.requestId));
+  revalidatePath("/admin");
+  revalidatePath(clientHomePath);
   return { ok: true };
 }
 

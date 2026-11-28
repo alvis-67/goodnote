@@ -178,9 +178,13 @@ export async function updateClientRequestContent(input: {
         and id = (
           select m.id
           from messages m
+          join notification_events e
+            on e.message_id = m.id
+           and e.request_id = m.request_id
           where m.request_id = ${input.requestId}
             and m.author_role = 'client'
             and m.kind = 'message'
+            and e.event_type = 'request_created'
           order by m.created_at asc, m.id asc
           limit 1
         )

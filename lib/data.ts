@@ -216,8 +216,9 @@ export type ThreadAttachment = {
 async function loadThreadFor(requestId: string, clientId: string | null): Promise<{
   messages: MessageRow[];
   attachments: ThreadAttachment[];
+  originalMessageId: string | null;
 }> {
-  const [messages, attachments] = await Promise.all([
+  const [messages, attachments, original] = await Promise.all([
     clientId
       ? sql()`
           select id, request_id, author_role, kind, body, status_from, status_to, stage_from, stage_to, created_at
@@ -244,6 +245,34 @@ async function loadThreadFor(requestId: string, clientId: string | null): Promis
           from attachments
           where request_id = ${requestId}
         `,
+    clientId
+      ? sql()`
+          select m.id
+          from messages m
+          join notification_events e
+            on e.message_id = m.id
+           and e.request_id = m.request_id
+          where m.request_id = ${requestId}
+            and m.author_role = 'client'
+            and m.kind = 'message'
+            and e.event_type = 'request_created'
+            and m.request_id in (select id from requests where client_id = ${clientId})
+          order by m.created_at asc, m.id asc
+          limit 1
+        `
+      : sql()`
+          select m.id
+          from messages m
+          join notification_events e
+            on e.message_id = m.id
+           and e.request_id = m.request_id
+          where m.request_id = ${requestId}
+            and m.author_role = 'client'
+            and m.kind = 'message'
+            and e.event_type = 'request_created'
+          order by m.created_at asc, m.id asc
+          limit 1
+        `,
   ]);
   return {
     messages: messages.flatMap((row) => {
@@ -258,18 +287,19 @@ async function loadThreadFor(requestId: string, clientId: string | null): Promis
       size_bytes: Number(row.size_bytes),
       storage_path: String(row.storage_path),
     })),
+    originalMessageId: uuidOrNull(original[0]?.id),
   };
 }
 
 export async function loadClientThread(requestId: string) {
   const context = await loadClientContext();
-  if (!context || !isUuid(requestId)) return { messages: [], attachments: [] };
+  if (!context || !isUuid(requestId)) return { messages: [], attachments: [], originalMessageId: null };
   return loadThreadFor(requestId, context.client.id);
 }
 
 export async function loadAdminThread(requestId: string) {
   await requireAdmin();
-  if (!isUuid(requestId)) return { messages: [], attachments: [] };
+  if (!isUuid(requestId)) return { messages: [], attachments: [], originalMessageId: null };
   return loadThreadFor(requestId, null);
 }
 

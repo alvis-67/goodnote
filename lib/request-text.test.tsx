@@ -405,10 +405,12 @@ test("request pages show the summary without restoring the client composer or th
 
   assert.match(admin, /<RequestBreakdown parsed=\{parsed\} currentTopic=\{request\.topic\} audience="admin" \/>/);
   assert.match(admin, /\{client\.phone \? <ClientPhone phone=\{client\.phone\} \/> : null\}/);
-  assert.match(admin, /<Thread messages=\{thread\.messages\} attachments=\{thread\.attachments\} \/>/);
+  assert.match(admin, /messages=\{thread\.messages\}/);
+  assert.match(admin, /attachments=\{thread\.attachments\}/);
   assert.match(admin, /<Composer audience="admin" mode="reply" requestId=\{request\.id\} presets=\{presets\} \/>/);
   assert.match(client, /<RequestBreakdown parsed=\{parsed\} currentTopic=\{request\.topic\} audience="client" \/>/);
   assert.match(client, /<Thread messages=\{thread\.messages\} attachments=\{thread\.attachments\} \/>/);
+  assert.doesNotMatch(client, /deleteMessage=|deleteConversationMessage/);
   assert.doesNotMatch(client, /Composer|prepareClientReply|補充或回覆|ClientPhone|tel:|client\.phone/);
   assert.match(thread, /<MessageBody text=\{message\.body\} mine=\{mine\} \/>/);
   assert.doesNotMatch(composer, /prepareClientReply/);

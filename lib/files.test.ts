@@ -9,6 +9,7 @@ import {
   parseStoragePath,
   resolveFile,
   storageKeysByRequest,
+  storageKeysForMessage,
   storageKeysForRequest,
   validateFiles,
 } from "./files";
@@ -110,6 +111,34 @@ test("deleting a request only removes that request's stored files", () => {
     extension: "pdf",
   });
   assert.deepEqual(storageKeysForRequest(requestId, [own, own, other, "../secret", ""]), [own]);
+});
+
+test("deleting a message only removes that message's stored files", () => {
+  const requestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const messageId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const otherMessageId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const own = buildStoragePath({
+    clientId: "11111111-1111-4111-8111-111111111111",
+    requestId,
+    messageId,
+    attachmentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    extension: "pdf",
+  });
+  const sibling = buildStoragePath({
+    clientId: "11111111-1111-4111-8111-111111111111",
+    requestId,
+    messageId: otherMessageId,
+    attachmentId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    extension: "png",
+  });
+  const otherRequest = buildStoragePath({
+    clientId: "11111111-1111-4111-8111-111111111111",
+    requestId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+    messageId,
+    attachmentId: "99999999-9999-4999-8999-999999999999",
+    extension: "jpg",
+  });
+  assert.deepEqual(storageKeysForMessage(requestId, messageId, [own, own, sibling, otherRequest, "../secret", ""]), [own]);
 });
 
 test("deleting a client groups stored files by request and drops paths from other requests", () => {
