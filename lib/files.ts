@@ -195,6 +195,20 @@ export function storageKeysForRequest(requestId: string, paths: string[]): strin
   return keys;
 }
 
+/** Final object keys for one conversation message. Other messages on the same request stay. */
+export function storageKeysForMessage(requestId: string, messageId: string, paths: string[]): string[] {
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const path of paths) {
+    if (seen.has(path)) continue;
+    const parts = parseStoragePath(path);
+    if (!parts || parts.requestId !== requestId || parts.messageId !== messageId) continue;
+    seen.add(path);
+    keys.push(path);
+  }
+  return keys;
+}
+
 export type RequestStorageFile = {
   requestId: string;
   path: string;

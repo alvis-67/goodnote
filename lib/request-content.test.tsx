@@ -14,6 +14,7 @@ import {
   canClientEditRequestContent,
   clientContentEditTouchesOnlyBody,
   originalClientContent,
+  originalContentToEdit,
   parseRequestContent,
 } from "./request-content";
 
@@ -88,6 +89,33 @@ test("a content edit can change only the original message body", () => {
   );
   assert.equal(originalClientContent([]), "");
 
+  const originalId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const laterId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const thread = [
+    { id: originalId, kind: "message", author_role: "client", body: "原來的內容" },
+    { id: "status", kind: "status_change", author_role: "system", body: "狀態由待處理改為處理中" },
+    { id: laterId, kind: "message", author_role: "client", body: "稍後補充" },
+    { id: "reply", kind: "message", author_role: "admin", body: "已回覆" },
+  ];
+  assert.equal(originalContentToEdit(thread, originalId), "原來的內容");
+  assert.equal(originalContentToEdit([{ id: originalId, kind: "message", author_role: "client", body: null }], originalId), "");
+  assert.equal(originalContentToEdit(thread, null), null);
+  assert.equal(
+    originalContentToEdit(
+      thread.filter((message) => message.id !== originalId),
+      null,
+    ),
+    null,
+  );
+  assert.equal(
+    originalContentToEdit([{ id: originalId, kind: "status_change", author_role: "system", body: "狀態" }], originalId),
+    null,
+  );
+  assert.equal(
+    originalContentToEdit([{ id: originalId, kind: "stage_change", author_role: "system", body: "階段" }], originalId),
+    null,
+  );
+
   const trimmed = parseRequestContent("  請改這段  ");
   assert.equal(trimmed.ok, true);
   if (trimmed.ok) assert.equal(trimmed.value, "請改這段");
@@ -109,8 +137,10 @@ test("the client content action checks ownership, ignores status, and does not n
   assert.match(fn, /author_role = 'client'/);
   assert.match(fn, /kind = 'message'/);
   assert.match(fn, /order by m\.created_at asc, m\.id asc/);
+  assert.match(fn, /event_type = 'request_created'/);
+  assert.match(fn, /找不到可以修改的內容。/);
   assert.doesNotMatch(fn, /notifyAdminOfNewRequest/);
-  assert.doesNotMatch(fn, /notification_events/);
+  assert.doesNotMatch(fn, /insert into notification_events/i);
   assert.doesNotMatch(fn, /insert into messages/i);
   assert.doesNotMatch(fn, /set (topic|stage|status|work_location)/i);
   assert.doesNotMatch(fn, /where[^;]*status =/i);
@@ -151,7 +181,7 @@ test("a signed-in admin can edit content at every status, and a client cannot", 
 test("the admin content action requires an admin session, edits only the body, and does not notify", () => {
   const action = readFileSync(new URL("./actions/admin.ts", import.meta.url), "utf8");
   const start = action.indexOf("export async function updateAdminRequestContent");
-  const fn = action.slice(start, action.indexOf("export async function deleteRequest"));
+  const fn = action.slice(start, action.indexOf("export async function deleteConversationMessage"));
   assert.ok(start > -1);
   assert.match(fn, /readSession\(\)/);
   assert.match(fn, /session\.kind !== "admin"/);
@@ -162,10 +192,12 @@ test("the admin content action requires an admin session, edits only the body, a
   assert.match(fn, /author_role = 'client'/);
   assert.match(fn, /kind = 'message'/);
   assert.match(fn, /order by m\.created_at asc, m\.id asc/);
+  assert.match(fn, /event_type = 'request_created'/);
+  assert.match(fn, /找不到可以修改的內容。/);
   assert.match(fn, /revalidatePath\(adminRequestPath\(input\.requestId\)\)/);
   assert.match(fn, /revalidatePath\(clientRequestPath\(input\.requestId\)\)/);
   assert.doesNotMatch(fn, /notifyAdminOfNewRequest|startTelegramPairing|completeTelegramPairing|clearTelegramChat/);
-  assert.doesNotMatch(fn, /notification_events/);
+  assert.doesNotMatch(fn, /insert into notification_events/i);
   assert.doesNotMatch(fn, /insert into messages/i);
   assert.doesNotMatch(fn, /set (topic|stage|status|work_location)/i);
   assert.doesNotMatch(fn, /where[^;]*status =/i);
@@ -173,12 +205,17 @@ test("the admin content action requires an admin session, edits only the body, a
 
   const adminPage = readFileSync(new URL("../app/admin/(desk)/requests/[id]/page.tsx", import.meta.url), "utf8");
   const clientPage = readFileSync(new URL("../app/client/(portal)/requests/[id]/page.tsx", import.meta.url), "utf8");
+  assert.match(adminPage, /originalContentToEdit\(thread\.messages, thread\.originalMessageId\)/);
+  assert.match(adminPage, /originalContent !== null \?/);
   assert.match(adminPage, /<EditRequestContent/);
   assert.match(adminPage, /action=\{updateAdminRequestContent\}/);
-  assert.match(adminPage, /content=\{originalClientContent\(thread\.messages\)\}/);
+  assert.match(adminPage, /content=\{originalContent\}/);
   assert.match(adminPage, /tone="desk"/);
   assert.doesNotMatch(adminPage, /updateClientRequestContent|補充或回覆|Composer audience="client"/);
+  assert.match(clientPage, /originalContentToEdit\(thread\.messages, thread\.originalMessageId\)/);
+  assert.match(clientPage, /originalContent !== null \?/);
   assert.match(clientPage, /action=\{updateClientRequestContent\}/);
+  assert.match(clientPage, /content=\{originalContent\}/);
   assert.doesNotMatch(clientPage, /updateAdminRequestContent/);
 
   const desk = renderToStaticMarkup(

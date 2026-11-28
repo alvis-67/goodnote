@@ -3,7 +3,12 @@ import { notFound } from "next/navigation";
 
 import { InstantLink } from "@/components/instant-link";
 
-import { deleteRequest, setRequestStatus, updateAdminRequestContent } from "@/lib/actions/admin";
+import {
+  deleteConversationMessage,
+  deleteRequest,
+  setRequestStatus,
+  updateAdminRequestContent,
+} from "@/lib/actions/admin";
 import { advanceAdminRequestStage } from "@/lib/actions/stage";
 import { AdvanceStage, StagePrompt } from "@/components/advance-stage";
 import { ClientPhone } from "@/components/client-phone";
@@ -19,7 +24,7 @@ import { RequestBreakdown } from "@/components/request-breakdown";
 import { Thread } from "@/components/thread";
 import { WorkLocation } from "@/components/work-location";
 import { getAdminRequest, listReplyPresets, loadAdminRequestChain, loadAdminThread } from "@/lib/data";
-import { originalClientContent } from "@/lib/request-content";
+import { originalContentToEdit } from "@/lib/request-content";
 import { parseRequestText, requestSourceText, worksiteToShow } from "@/lib/request-text";
 import { formatDateTime } from "@/lib/format";
 import { isDeskReady } from "@/lib/env";
@@ -53,7 +58,8 @@ export default async function AdminRequestPage({
   ]);
   if (!loaded) notFound();
   const { request, client } = loaded;
-  const parsed = parseRequestText(requestSourceText(thread.messages) ?? "");
+  const originalContent = originalContentToEdit(thread.messages, thread.originalMessageId);
+  const parsed = parseRequestText(originalContent !== null ? (requestSourceText(thread.messages) ?? "") : "");
   const worksite = worksiteToShow(request.work_location, parsed.worksite);
   const advanceLabel = stageAdvanceLabel(request.topic, request.stage);
   const stagePrompt = adminStagePrompt(client.company_name, request.topic, request.stage);
@@ -155,14 +161,21 @@ export default async function AdminRequestPage({
         </div>
         </LiveRequest>
         <RequestBreakdown parsed={parsed} currentTopic={request.topic} audience="admin" />
-        <EditRequestContent
-          requestId={request.id}
-          content={originalClientContent(thread.messages)}
-          action={updateAdminRequestContent}
-          tone="desk"
-        />
+        {originalContent !== null ? (
+          <EditRequestContent
+            requestId={request.id}
+            content={originalContent}
+            action={updateAdminRequestContent}
+            tone="desk"
+          />
+        ) : null}
         <div className="mt-5">
-          <Thread messages={thread.messages} attachments={thread.attachments} />
+          <Thread
+            messages={thread.messages}
+            attachments={thread.attachments}
+            requestId={request.id}
+            deleteMessage={deleteConversationMessage}
+          />
         </div>
         <div className="mt-6 rounded-3xl bg-desk-card p-4">
           <h3 className="font-semibold">回覆</h3>

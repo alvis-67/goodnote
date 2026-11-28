@@ -277,7 +277,9 @@ test("request messages are newest first on both pages, and files stay on their o
   const data = readFileSync(new URL("./data.ts", import.meta.url), "utf8");
   const threadQuery = data.slice(data.indexOf("async function loadThreadFor"), data.indexOf("export async function loadClientThread"));
   assert.match(clientPage, /<Thread messages=\{thread\.messages\} attachments=\{thread\.attachments\} \/>/);
-  assert.match(adminPage, /<Thread messages=\{thread\.messages\} attachments=\{thread\.attachments\} \/>/);
+  assert.match(adminPage, /messages=\{thread\.messages\}/);
+  assert.match(adminPage, /attachments=\{thread\.attachments\}/);
+  assert.doesNotMatch(clientPage, /deleteMessage=|deleteConversationMessage/);
   assert.match(threadQuery, /order by created_at asc/);
   assert.doesNotMatch(threadQuery, /order by created_at desc/);
   assert.doesNotMatch(clientPage, /\.reverse\(|toReversed\(/);

@@ -14,7 +14,7 @@ import { RequestBreakdown } from "@/components/request-breakdown";
 import { Thread } from "@/components/thread";
 import { getClientRequest, loadClientRequestChain, loadClientThread } from "@/lib/data";
 import { isDeskReady } from "@/lib/env";
-import { originalClientContent } from "@/lib/request-content";
+import { originalContentToEdit } from "@/lib/request-content";
 import { parseRequestText, requestSourceText, worksiteToShow } from "@/lib/request-text";
 import { clientRequestPath } from "@/lib/paths";
 import { stageAdvanceError, stageAdvanceLabel, stageAdvanceNote, stageAdvancedNotice } from "@/lib/request-stage";
@@ -37,7 +37,8 @@ export default async function ClientRequestPage({
     loadClientThread(id),
   ]);
   if (!request) notFound();
-  const parsed = parseRequestText(requestSourceText(thread.messages) ?? "");
+  const originalContent = originalContentToEdit(thread.messages, thread.originalMessageId);
+  const parsed = parseRequestText(originalContent !== null ? (requestSourceText(thread.messages) ?? "") : "");
   const worksite = worksiteToShow(request.work_location, parsed.worksite);
   const advanceLabel = stageAdvanceLabel(request.topic, request.stage);
 
@@ -86,11 +87,13 @@ export default async function ClientRequestPage({
       ) : null}
       </LiveRequest>
       <RequestBreakdown parsed={parsed} currentTopic={request.topic} audience="client" />
-      <EditRequestContent
-        requestId={request.id}
-        content={originalClientContent(thread.messages)}
-        action={updateClientRequestContent}
-      />
+      {originalContent !== null ? (
+        <EditRequestContent
+          requestId={request.id}
+          content={originalContent}
+          action={updateClientRequestContent}
+        />
+      ) : null}
       <div className="mt-5">
         <Thread messages={thread.messages} attachments={thread.attachments} />
       </div>
